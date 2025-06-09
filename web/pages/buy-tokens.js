@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../utils/supabaseClient'
-import BuyTokenModal from '../components/BuyTokenModal'
 import Layout from '../components/Layout'
 
 const PACKS = [
