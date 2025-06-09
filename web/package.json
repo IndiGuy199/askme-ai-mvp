@@ -21,8 +21,13 @@
   "homepage": "https://github.com/IndiGuy199/askme-ai-mvp#readme",
   "description": "",
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "bootstrap": "^5.3.6",
+    "bootstrap-icons": "^1.13.1",
     "next": "^15.3.3",
+    "openai": "^5.1.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "stripe": "^18.2.1"
   }
 }
