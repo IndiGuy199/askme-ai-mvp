@@ -16,7 +16,7 @@ export default async function handler(req, res) {
     try {
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, email, tokens, first_name, age, city, country, marital_status, created_at')
+        .select('id, email, tokens, first_name, age, city, country, marital_status, created_at, coach_profile_id')
         .eq('email', email)
         .single()
 
@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({
+        id: user.id,  // Add database user ID
         tokens: user.tokens || 0,
         firstName: user.first_name,
         email: user.email,
@@ -33,7 +34,8 @@ export default async function handler(req, res) {
         city: user.city,
         country: user.country,
         maritalStatus: user.marital_status,
-        lastLogin: user.created_at
+        lastLogin: user.created_at,
+        coach_profile_id: user.coach_profile_id
       })
     } catch (error) {
       console.error('API error:', error)
