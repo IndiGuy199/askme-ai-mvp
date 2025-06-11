@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+web/node_modules/
+*/node_modules/
+
+# Root package.json
+package.json
+
+# Next.js build output
+web/.next/
+.next/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Build outputs
+dist/
+build/
+
+# Temporary folders
+tmp/
+temp/
