@@ -5,9 +5,8 @@ import { supabase } from '../utils/supabaseClient'
 import Layout from '../components/Layout'
 
 const PACKS = [
-  { tokens: 100, price: '4,99' },
-  { tokens: 250, price: '9,99' },
-  { tokens: 1000, price: '17,99' },
+  { tokens: 25000, price: '9.99', priceId: 'price_1RWlfr4gLT9aIqMDl62HX9DF' },
+  { tokens: 10000, price: '4.99', priceId: 'price_1RWlea4gLT9aIqMDkebCi9N2' },
 ]
 
 export default function BuyTokens() {
@@ -30,14 +29,14 @@ export default function BuyTokens() {
     fetchUser()
   }, [router])
 
-  const handleBuy = async (tokenCount) => {
+  const handleBuy = async (tokenCount, priceId) => {
     if (!userEmail) return alert('User not authenticated.')
     setLoading(true)
     try {
       const res = await fetch('/api/createCheckout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priceId: 'price_1RWlea4gLT9aIqMDkebCi9N2', email: userEmail, token_count: tokenCount })
+        body: JSON.stringify({ priceId, email: userEmail, token_count: tokenCount })
       })
       const data = await res.json()
       if (data?.url) {
@@ -69,7 +68,7 @@ export default function BuyTokens() {
               <span className="fw-bold fs-4">{pack.tokens} Tokens — ${pack.price}</span>
               <button
                 className="btn btn-primary btn-lg"
-                onClick={() => handleBuy(pack.tokens)}
+                onClick={() => handleBuy(pack.tokens, pack.priceId)}
               >
                 Buy Now
               </button>
