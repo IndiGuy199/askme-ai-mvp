@@ -30,7 +30,8 @@ export default async function handler(req, res) {
         }
       ],
       metadata: {
-        token_count: token_count.toString()
+        token_count: token_count.toString(),
+        price_id: priceId
       },
       success_url: `${appUrl}/dashboard?success=true`,
       cancel_url: `${appUrl}/dashboard?canceled=true`

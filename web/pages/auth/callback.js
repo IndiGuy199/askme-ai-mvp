@@ -8,8 +8,7 @@ export default function AuthCallback() {
   const [sessionChecked, setSessionChecked] = useState(false);
   const [user, setUser] = useState(null);
   const [allGoals, setAllGoals] = useState([]);
-  const [allChallenges, setAllChallenges] = useState([]);
-  const [form, setForm] = useState({
+  const [allChallenges, setAllChallenges] = useState([]);  const [form, setForm] = useState({
     firstName: '',
     age: '',
     sex: '',
@@ -18,7 +17,9 @@ export default function AuthCallback() {
     country: '',
     maritalStatus: '',
     selectedGoals: [],
-    selectedChallenges: []
+    selectedChallenges: [],
+    communicationStyle: '',
+    coachingFormat: ''
   });
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -250,9 +251,7 @@ export default function AuthCallback() {
         assignedCoach = fallbackCoach;
       }
 
-      console.log('👨‍⚕️ Assigned coach:', assignedCoach.label);
-
-      // Create the user record
+      console.log('👨‍⚕️ Assigned coach:', assignedCoach.label);      // Create the user record
       const userData = {
         email,
         first_name: form.firstName,
@@ -262,6 +261,9 @@ export default function AuthCallback() {
         city: form.city || null,
         country: form.country || null,
         marital_status: form.maritalStatus || null,
+        communication_style: form.communicationStyle || 'balanced',
+        coaching_format: form.coachingFormat || 'conversational',
+        preferences_set: Boolean(form.communicationStyle && form.coachingFormat),
         coach_profile_id: assignedCoach.id,
         profile_completed: true,
         tokens: 20, // Welcome tokens
@@ -641,8 +643,118 @@ export default function AuthCallback() {
                           </small>
                         </div>
                       )}
+                    </div>                  )}
+
+                  {/* Communication Style Quiz Section */}
+                  <div className="mb-4">
+                    <div className="mb-3">
+                      <label className="form-label fw-semibold text-dark small mb-2">
+                        How do you prefer to receive coaching advice?
+                      </label>
+                      <div className="row g-2">
+                        {[
+                          { 
+                            value: 'direct', 
+                            label: 'Direct & To-the-Point', 
+                            description: 'Clear, concise advice without fluff',
+                            icon: 'bi-arrow-right-circle'
+                          },
+                          { 
+                            value: 'step-by-step', 
+                            label: 'Step-by-Step Guide', 
+                            description: 'Detailed breakdown with clear action steps',
+                            icon: 'bi-list-ol'
+                          },
+                          { 
+                            value: 'gentle-encouraging', 
+                            label: 'Gentle & Encouraging', 
+                            description: 'Supportive tone with positive reinforcement',
+                            icon: 'bi-heart'
+                          }
+                        ].map(style => (
+                          <div key={style.value} className="col-12">
+                            <button
+                              type="button"
+                              className={`btn w-100 text-start p-3 position-relative ${
+                                form.communicationStyle === style.value 
+                                  ? 'btn-primary' 
+                                  : 'btn-outline-secondary'
+                              }`}
+                              style={{ borderRadius: '0.5rem' }}
+                              onClick={() => setForm(prev => ({ ...prev, communicationStyle: style.value }))}
+                            >
+                              <div className="d-flex align-items-center">
+                                <i className={`${style.icon} me-3`} style={{ fontSize: '1.2rem' }}></i>
+                                <div>
+                                  <div className="fw-semibold">{style.label}</div>
+                                  <small className={`${form.communicationStyle === style.value ? 'text-white-50' : 'text-muted'}`}>
+                                    {style.description}
+                                  </small>
+                                </div>
+                                {form.communicationStyle === style.value && (
+                                  <i className="bi bi-check-circle-fill position-absolute top-50 end-0 translate-middle-y me-3 text-white"></i>
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  )}
+
+                    <div className="mb-3">
+                      <label className="form-label fw-semibold text-dark small mb-2">
+                        How much detail would you like in responses?
+                      </label>
+                      <div className="row g-2">
+                        {[
+                          { 
+                            value: 'concise', 
+                            label: 'Brief & Concise', 
+                            description: 'Quick answers, key points only',
+                            icon: 'bi-lightning'
+                          },
+                          { 
+                            value: 'detailed', 
+                            label: 'Detailed & Thorough', 
+                            description: 'In-depth explanations with examples',
+                            icon: 'bi-book'
+                          },
+                          { 
+                            value: 'conversational', 
+                            label: 'Conversational', 
+                            description: 'Natural dialogue with context',
+                            icon: 'bi-chat-dots'
+                          }
+                        ].map(format => (
+                          <div key={format.value} className="col-12">
+                            <button
+                              type="button"
+                              className={`btn w-100 text-start p-3 position-relative ${
+                                form.coachingFormat === format.value 
+                                  ? 'btn-primary' 
+                                  : 'btn-outline-secondary'
+                              }`}
+                              style={{ borderRadius: '0.5rem' }}
+                              onClick={() => setForm(prev => ({ ...prev, coachingFormat: format.value }))}
+                            >
+                              <div className="d-flex align-items-center">
+                                <i className={`${format.icon} me-3`} style={{ fontSize: '1.2rem' }}></i>
+                                <div>
+                                  <div className="fw-semibold">{format.label}</div>
+                                  <small className={`${form.coachingFormat === format.value ? 'text-white-50' : 'text-muted'}`}>
+                                    {format.description}
+                                  </small>
+                                </div>
+                                {form.coachingFormat === format.value && (
+                                  <i className="bi bi-check-circle-fill position-absolute top-50 end-0 translate-middle-y me-3 text-white"></i>
+                                )}
+                              </div>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Compact Submit Button */}
                   <div className="d-grid">

@@ -364,14 +364,13 @@ export default function Dashboard() {
       </Layout>
     )
   }
-
   const displayName = userData.firstName || user.user_metadata?.first_name || user.email.split('@')[0]
 
   return (
     <Layout title="Dashboard">
       <div className="container-fluid min-vh-100 d-flex align-items-center justify-content-center" style={{ backgroundColor: '#f8f9fa' }}>
         <div className="row w-100 justify-content-center">
-          <div className="col-12 col-sm-10 col-md-8 col-lg-6 col-xl-4">
+          <div className="col-12 col-md-10 col-lg-8 col-xl-6">
             <div className="card shadow-lg border-0 rounded-4">
               <div className="card-body p-4 p-md-5">
                 {/* Greeting and Token Balance */}
@@ -573,6 +572,12 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* NOTE: If you see CORS errors when using Supabase, make sure:
+      1. You are using the official Supabase JS client for all DB/auth calls (as in this file).
+      2. Your Supabase project settings (in the Supabase dashboard) include http://localhost:3000 in Auth > URL Configuration > Allowed Origins (CORS).
+      3. You are NOT calling Supabase REST endpoints directly from the browser. Always use the Supabase JS client.
+      4. Your supabaseClient.js uses the correct project URL and anon key. */}
     </Layout>
   )
 }
