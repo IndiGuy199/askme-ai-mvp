@@ -8,21 +8,25 @@ export default function Dashboard() {
   const [user, setUser] = useState(null)
   const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [userGoals, setUserGoals] = useState([])
   const [progress, setProgress] = useState([])
   const [actionPlans, setActionPlans] = useState([])
-  // State for add goal/action modals
-  const [showAddGoal, setShowAddGoal] = useState(false)
-  const [showAddAction, setShowAddAction] = useState(false)
-  const [showUpdateProgress, setShowUpdateProgress] = useState(false)
-  const [newGoalName, setNewGoalName] = useState('')
-  const [newActionDesc, setNewActionDesc] = useState('')
-  const [newActionGoalId, setNewActionGoalId] = useState('')
-  const [selectedGoal, setSelectedGoal] = useState(null)
-  const [newProgress, setNewProgress] = useState(0)
+  const [suggestingGoal, setSuggestingGoal] = useState(null)
+  const [recentAchievement, setRecentAchievement] = useState(null)
+  const [expandedGoals, setExpandedGoals] = useState(new Set())
+  const [showGoalModal, setShowGoalModal] = useState(false)
+  const [availableGoals, setAvailableGoals] = useState([])
+  const [newGoalLabel, setNewGoalLabel] = useState('')
+  const [newGoalDescription, setNewGoalDescription] = useState('')
+  const [creatingGoal, setCreatingGoal] = useState(false)
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
   const router = useRouter()
 
-  // Fetch user goals and their progress
-  const [userGoals, setUserGoals] = useState([])
+  // Toast notification function
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type })
+    setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000)
+  }
   useEffect(() => {
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -30,9 +34,10 @@ export default function Dashboard() {
         router.push('/login')
         return
       }
-        setUser(session.user)
+      
+      setUser(session.user)
       await fetchUserData(session.user.email)
-      // Note: We'll fetch progress and action plans after userData is loaded
+      await fetchAvailableGoals() // Add this line
     }
 
     getSession()
@@ -43,7 +48,7 @@ export default function Dashboard() {
       } else {
         setUser(session.user)
         await fetchUserData(session.user.email)
-        // Note: We'll fetch progress and action plans after userData is loaded
+        await fetchAvailableGoals() // Add this line too
       }
     })
 
@@ -52,311 +57,388 @@ export default function Dashboard() {
 
   const fetchUserData = async (email) => {
     try {
+      setLoading(true)
       const response = await fetch(`/api/gptRouter?email=${encodeURIComponent(email)}`)
-      if (response.ok) {
-        const data = await response.json()
-        setUserData(data) // Don't modify the data, use it as-is from the API
-      } else {
-        console.error('Failed to fetch user data')
-        // Fallback to auth user data
-        setUserData({
-          tokens: 0,
-          firstName: user?.user_metadata?.first_name || email?.split('@')[0],
-          email: email,
-          lastLogin: null
-        })
+      const data = await response.json()
+        if (response.ok) {
+        setUserData(data)
+        await Promise.all([
+          fetchUserGoals(data.id),
+          fetchProgress(data.id),
+          fetchActionPlans(data.id)
+        ])
       }
     } catch (error) {
       console.error('Error fetching user data:', error)
-      // Fallback to auth user data
-      setUserData({
-        tokens: 0,
-        firstName: user?.user_metadata?.first_name || email?.split('@')[0],
-        email: email,
-        lastLogin: null
-      })
     } finally {
       setLoading(false)
+    }
+  }
+  const fetchUserGoals = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_wellness_goals')
+        .select(`
+          id,
+          coach_wellness_goals (
+            id,
+            goal_id,
+            label,
+            description
+          )
+        `)
+        .eq('user_id', userId)
+
+      if (error) throw error
+      setUserGoals(data || [])
+    } catch (error) {
+      console.error('Error fetching user goals:', error)
+    }
+  }
+  const fetchAvailableGoals = async () => {
+    try {
+      console.log('Fetching available goals...')
+      const { data, error } = await supabase
+        .from('coach_wellness_goals')
+        .select('*')
+        .order('label')
+
+      if (error) throw error
+      console.log('Available goals fetched:', data?.length || 0)
+      setAvailableGoals(data || [])
+    } catch (error) {
+      console.error('Error fetching available goals:', error)
+    }
+  }
+
+  const addGoalToUser = async (goalId) => {
+    try {
+      console.log('Adding goal to user:', goalId, user?.email)
+      setCreatingGoal(true)
+      const response = await fetch('/api/goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          goalId: goalId
+        })
+      })
+
+      console.log('Response status:', response.status)
+      const data = await response.json()
+      console.log('Response data:', data)
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to add goal')
+      }      // Close modal first
+      setShowGoalModal(false)
+      
+      // Update the userGoals state directly instead of refetching
+      if (data.goal) {
+        setUserGoals(prev => [...prev, data.goal])
+        showToast('Goal added successfully! 🎯')
+      }
+      
+    } catch (error) {
+      console.error('Error adding goal:', error)
+      // Show error in a more user-friendly way
+      setShowGoalModal(false)
+      showToast(error.message || 'Failed to add goal', 'error')
+    } finally {
+      setCreatingGoal(false)
+    }
+  }
+
+  const createCustomGoal = async () => {
+    if (!newGoalLabel.trim()) {
+      alert('Please enter a goal title')
+      return
+    }
+
+    try {
+      setCreatingGoal(true)
+      const response = await fetch('/api/goals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          goalData: {
+            label: newGoalLabel.trim(),
+            description: newGoalDescription.trim() || newGoalLabel.trim(),
+            category: 'Custom'
+          }
+        })
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create goal')
+      }
+
+      // Refresh user goals
+      await fetchUserGoals(user.id)
+      setShowGoalModal(false)
+      setNewGoalLabel('')
+      setNewGoalDescription('')
+      
+      // Show success message
+      alert('Custom goal created successfully!')
+    } catch (error) {
+      console.error('Error creating custom goal:', error)
+      alert(error.message || 'Failed to create custom goal')
+    } finally {
+      setCreatingGoal(false)
     }
   }
 
   const fetchProgress = async (userId) => {
     try {
-      let { data, error } = await supabase
+      const { data, error } = await supabase
         .from('progress')
-        .select('id, goal_id, percent_complete, updated_at, goals(name)')
+        .select('*')
         .eq('user_id', userId)
+
       if (error) throw error
       setProgress(data || [])
-    } catch (err) {
-      setProgress([])
+    } catch (error) {
+      console.error('Error fetching progress:', error)
     }
   }
 
   const fetchActionPlans = async (userId) => {
     try {
-      let { data, error } = await supabase
+      console.log('📋 Fetching action plans for user:', userId)
+      const { data, error } = await supabase
         .from('action_plans')
-        .select('id, action, due_date, completed, goal_id, goals(name)')
-        .eq('user_id', userId)
-        .gte('due_date', new Date().toISOString().slice(0, 10))
-        .order('due_date', { ascending: true })
-      if (error) throw error
-      setActionPlans(data || [])
-    } catch (err) {
-      setActionPlans([])
-    }
-  }
-
-  // Fetch user goals and their progress
-  useEffect(() => {
-    if (!user || !userData) return;
-    const fetchUserGoals = async () => {
-      // Use the database user ID from userData.id (not databaseUserId)
-      const dbUserId = userData.id;
-      console.log('Fetching user goals for database user ID:', dbUserId);
-      console.log('UserData object:', userData);
-      
-      if (!dbUserId) {
-        console.log('No database user ID found in userData');
-        return;
-      }
-      
-      // First, let's try a simple query to see if we have any user_wellness_goals
-      let { data: simpleData, error: simpleError } = await supabase
-        .from('user_wellness_goals')
         .select('*')
-        .eq('user_id', dbUserId)
-      
-      console.log('Simple user_wellness_goals query with database user ID:', dbUserId);
-      console.log('Simple user_wellness_goals query:', { simpleData, simpleError });
-      
-      if (simpleData && simpleData.length > 0) {
-        // Get the full goal data with coach_wellness_goals
-        let { data, error } = await supabase
-          .from('user_wellness_goals')
-          .select(`
-            id,
-            coach_wellness_goal_id,
-            coach_wellness_goals(label, goal_id)
-          `)
-          .eq('user_id', dbUserId)
-        
-        console.log('Complex user goals query result:', { data, error });
-        
-        if (!error && data) {
-          console.log('Found', data.length, 'goals, fetching progress for each...');
-          // For each goal, get the progress separately
-          for (let goal of data) {
-            if (goal.coach_wellness_goals?.goal_id) {
-              console.log('Fetching progress for goal:', goal.coach_wellness_goals.goal_id);
-              const { data: progressData } = await supabase
-                .from('progress')
-                .select('progress_percent')
-                .eq('user_id', dbUserId)
-                .eq('goal_id', goal.coach_wellness_goals.goal_id)
-                .single()
-              goal.progress = progressData
-              console.log('Progress for goal', goal.coach_wellness_goals.goal_id, ':', progressData);
-            }
-          }
-          console.log('Final userGoals data:', data);
-          setUserGoals(data)
-        } else {
-          console.log('Complex query failed:', error);
-          setUserGoals([])
-        }
-      } else {
-        console.log('No user_wellness_goals found for user:', dbUserId);
-        setUserGoals([])
-      }
+        .eq('user_id', userId)
+        .eq('is_complete', false)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      console.log('📋 Action plans fetched:', data?.length || 0, 'plans')
+      setActionPlans(data || [])
+    } catch (error) {
+      console.error('Error fetching action plans:', error)
     }
-    fetchUserGoals()
-  }, [user, userData, showAddGoal])
-
-  const handleMarkComplete = async (actionId) => {
-    await supabase
-      .from('action_plans')
-      .update({ completed: true })
-      .eq('id', actionId)
-    setActionPlans((prev) => prev.map(a => a.id === actionId ? { ...a, completed: true } : a))
   }
 
-  const handleUpdateProgress = (goal) => {
-    setSelectedGoal(goal)
-    // Find current progress for this goal
-    const currentProgress = goal.progress?.progress_percent || 0
-    setNewProgress(currentProgress)
-    setShowUpdateProgress(true)
-  }
-  const handleSaveProgress = async () => {
-    if (!selectedGoal || !userData.id) return
-
-    console.log('Saving progress:', {
-      selectedGoal,
-      newProgress,
-      userId: userData.id,
-      goalId: selectedGoal.coach_wellness_goals?.goal_id
-    })
-
+  const generateSuggestedAction = async (goalId, goalLabel) => {
+    setSuggestingGoal(goalId)
+    
     try {
-      const { error } = await supabase
-        .from('progress')
-        .update({ progress_percent: newProgress })
-        .eq('user_id', userData.id)
-        .eq('goal_id', selectedGoal.coach_wellness_goals?.goal_id)
-
-      if (error) {
-        console.error('Error updating progress:', error)
-        alert('Error updating progress: ' + error.message)
-        return
-      }
-
-      console.log('Progress updated successfully')
-
-      // Refresh user goals to show updated progress
-      const dbUserId = userData.id
-      let { data, error: fetchError } = await supabase
-        .from('user_wellness_goals')
-        .select(`
-          id,
-          coach_wellness_goal_id,
-          coach_wellness_goals(label, goal_id)
-        `)
-        .eq('user_id', dbUserId)
+      // Generate AI suggestion using OpenAI
+      const prompt = `As a wellness coach, suggest one specific, actionable step for someone working on "${goalLabel}".
       
-      if (!fetchError && data) {
-        for (let goal of data) {
-          const { data: progressData } = await supabase
-            .from('progress')
-            .select('progress_percent')
-            .eq('user_id', dbUserId)
-            .eq('goal_id', goal.coach_wellness_goals?.goal_id)
-            .single()
-          goal.progress = progressData
-        }
-        setUserGoals(data)
-        console.log('User goals refreshed')
-      }
+The suggestion should be:
+- Concrete and doable today or this week
+- Specific and measurable
+- Motivating but achievable
 
-      setShowUpdateProgress(false)
-      setSelectedGoal(null)
-      setNewProgress(0)
+User context:
+- Communication style: ${userData.tone || 'balanced'}
+- Goal: ${goalLabel}
+
+Respond with just the action suggestion (1-2 sentences, max 100 characters).`
+
+      const response = await fetch('/api/gptRouter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          message: prompt,
+          includeMemory: false
+        })
+      })
+
+      const data = await response.json()
+      
+      if (response.ok && data.response) {        // Save the suggested action with status 'suggested'
+        const { error } = await supabase
+          .from('action_plans')
+          .insert({
+            user_id: userData.id,
+            goal_id: goalId,
+            action_text: data.response.trim(),
+            is_complete: false,
+            status: 'suggested', // Add status to distinguish from accepted actions
+            created_at: new Date().toISOString()
+          })
+
+        if (!error) {
+          await fetchActionPlans(userData.id)
+        }
+      }
+    } catch (error) {
+      console.error('Error generating action:', error)
+    } finally {
+      setSuggestingGoal(null)
+    }
+  }
+  const acceptSuggestedAction = async (actionId) => {
+    try {
+      // Mark action as accepted, which moves it to "Today's Recommended Actions"
+      const { error } = await supabase
+        .from('action_plans')
+        .update({ 
+          status: 'accepted',
+          accepted_at: new Date().toISOString()
+        })
+        .eq('id', actionId)
+
+      if (!error) {
+        await fetchActionPlans(userData.id)
+      }
+    } catch (error) {
+      console.error('Error accepting action:', error)
+    }
+  }
+
+  const markActionDone = async (actionId, goalId) => {
+    try {
+      // Mark action as complete
+      const { error } = await supabase
+        .from('action_plans')
+        .update({ 
+          is_complete: true, 
+          completed_at: new Date().toISOString() 
+        })
+        .eq('id', actionId)
+
+      if (!error) {
+        // Update progress if goal exists
+        if (goalId) {
+          const currentProgress = progress.find(p => p.goal_id === goalId)
+          const newProgressPercent = Math.min(100, (currentProgress?.progress_percent || 0) + 5)
+          
+          if (currentProgress) {
+            await supabase
+              .from('progress')
+              .update({ 
+                progress_percent: newProgressPercent,
+                last_updated: new Date().toISOString()
+              })
+              .eq('id', currentProgress.id)
+          } else {
+            await supabase
+              .from('progress')
+              .insert({
+                user_id: userData.id,
+                goal_id: goalId,
+                progress_percent: 5,
+                last_updated: new Date().toISOString()
+              })
+          }
+          
+          // Check for achievements
+          if (newProgressPercent >= 25 && newProgressPercent < 30) {
+            setRecentAchievement({
+              title: "Great Progress!",
+              description: "You've made solid progress on your wellness goals!"
+            })
+          } else if (newProgressPercent >= 50 && newProgressPercent < 55) {
+            setRecentAchievement({
+              title: "Halfway There!",
+              description: "You're 50% complete with this goal!"
+            })
+          }
+          
+          await fetchProgress(userData.id)
+        }
+        
+        await fetchActionPlans(userData.id)
+      }
+    } catch (error) {
+      console.error('Error marking action done:', error)
+    }
+  }
+
+  const updateProgress = async (goalId, newPercent) => {
+    try {
+      const currentProgress = progress.find(p => p.goal_id === goalId)
+      
+      if (currentProgress) {
+        await supabase
+          .from('progress')
+          .update({ 
+            progress_percent: newPercent,
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', currentProgress.id)
+      } else {
+        await supabase
+          .from('progress')
+          .insert({
+            user_id: userData.id,
+            goal_id: goalId,
+            progress_percent: newPercent,
+            last_updated: new Date().toISOString()
+          })
+      }
+      
+      await fetchProgress(userData.id)
     } catch (error) {
       console.error('Error updating progress:', error)
-      alert('Error updating progress: ' + error.message)
     }
   }
-  // Handler to add a new goal
-  const handleAddGoal = async () => {
-    if (!newGoalName.trim()) return;
-    if (!userData.coach_profile_id) {
-      alert('No coach_profile_id found for user.');
-      return;
-    }
 
-    console.log('Adding goal for user ID:', userData.id)
+  const getProgressForGoal = (goalId) => {
+    const goalProgress = progress.find(p => p.goal_id === goalId)
+    return goalProgress ? goalProgress.progress_percent : 0
+  }
+  const getSuggestedActionForGoal = (goalId) => {
+    return actionPlans.find(action => 
+      action.goal_id === goalId && 
+      !action.is_complete &&
+      action.status === 'suggested' // Only show pending suggestions in goal cards
+    )
+  }
+
+  const getAcceptedActions = () => {
+    return actionPlans.filter(action => 
+      !action.is_complete &&
+      action.status === 'accepted' // Only show accepted actions in "Today's Recommended Actions"
+    )
+  }
+
+  // Helper functions
+  const toggleGoalExpanded = (goalId) => {
+    const newExpanded = new Set(expandedGoals)
+    if (newExpanded.has(goalId)) {
+      newExpanded.delete(goalId)
+    } else {
+      newExpanded.add(goalId)
+    }
+    setExpandedGoals(newExpanded)
+  }
+
+  const getTimeOfDayGreeting = () => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good Morning'
+    if (hour < 17) return 'Good Afternoon'
+    return 'Good Evening'
+  }
+
+  const getStreakDays = (goalId) => {
+    // Simple streak calculation - could be enhanced
+    const goalProgress = progress.find(p => p.goal_id === goalId)
+    if (!goalProgress) return 0
     
-    // 1. Check if goal already exists for this coach
-    let { data: existingGoals, error: findError } = await supabase
-      .from('coach_wellness_goals')
-      .select('*')
-      .eq('coach_profile_id', userData.coach_profile_id)
-      .ilike('label', newGoalName.trim());
-    let goal;
-    if (findError) {
-      alert('Error searching for goal: ' + findError.message);
-      return;
+    // If progress was updated today, assume streak continues
+    const lastUpdate = new Date(goalProgress.last_updated)
+    const today = new Date()
+    const daysDiff = Math.floor((today - lastUpdate) / (1000 * 60 * 60 * 24))
+    
+    if (daysDiff <= 1 && goalProgress.progress_percent > 0) {
+      return Math.floor(goalProgress.progress_percent / 10) + 1 // Rough estimate
     }
-    if (existingGoals && existingGoals.length > 0) {
-      goal = existingGoals[0];    } else {
-      // 2. If not found, create new goal
-      let { data: newGoal, error: goalError } = await supabase
-        .from('coach_wellness_goals')
-        .insert([{
-          coach_profile_id: userData.coach_profile_id,
-          goal_id: `user_${Date.now()}`,
-          label: newGoalName.trim(),
-          description: '',
-          display_order: 99,
-          is_active: true
-        }])
-        .select()
-        .single();
-      if (goalError) {
-        alert('Error adding goal: ' + goalError.message);
-        return;
-      }
-      goal = newGoal;
-    }
-    // 3. Link user to goal if not already linked
-    let { data: userGoal, error: userGoalError } = await supabase
-      .from('user_wellness_goals')
-      .select('*')
-      .eq('user_id', userData.id)
-      .eq('coach_wellness_goal_id', goal.id);
-    if (!userGoal || userGoal.length === 0) {
-      const { error: uwgError } = await supabase
-        .from('user_wellness_goals')
-        .insert([{ user_id: userData.id, coach_wellness_goal_id: goal.id }]);
-      if (uwgError) {
-        alert('Error linking user to goal: ' + uwgError.message);
-        return;
-      }
-    }
-    // 4. Add progress row if not already present
-    let { data: prog, error: progFindError } = await supabase
-      .from('progress')
-      .select('*')
-      .eq('user_id', userData.id)
-      .eq('goal_id', goal.goal_id);
-    if (!prog || prog.length === 0) {
-      const { error: progError } = await supabase
-        .from('progress')
-        .insert([{ user_id: userData.id, goal_id: goal.goal_id, progress_percent: 0 }]);
-      if (progError) {
-        alert('Error creating progress row: ' + progError.message);
-        return;
-      }
-    }
-    setShowAddGoal(false);
-    setNewGoalName("");
-    // Refresh user goals
-    let { data, error } = await supabase
-      .from('user_wellness_goals')
-      .select(`
-        id,
-        coach_wellness_goal_id,
-        coach_wellness_goals(label, goal_id),
-        progress:progress(id, goal_id, user_id, progress_percent)
-      `)
-      .eq('user_id', userData.id)
-    if (!error) setUserGoals(data || [])
-    fetchProgress(userData.id);
-  };
-
-  // Handler to add a new action plan
-  const handleAddAction = async () => {
-    if (!newActionDesc.trim() || !newActionGoalId) return;
-    await supabase
-      .from('action_plans')
-      .insert([{
-        user_id: user.id,
-        goal_id: newActionGoalId,
-        action: newActionDesc.trim(),
-        due_date: new Date().toISOString().slice(0, 10),
-        completed: false
-      }]);
-    setShowAddAction(false);
-    setNewActionDesc("");
-    setNewActionGoalId("");
-    fetchActionPlans(user.id);
-  };
-
-  if (loading || !user || !userData) {
+    return 0
+  }
+  if (loading) {
     return (
       <Layout title="Dashboard">
-        <div className="d-flex justify-content-center align-items-center min-vh-100">
+        <div className="d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
           <div className="spinner-border text-primary" role="status">
             <span className="visually-hidden">Loading...</span>
           </div>
@@ -364,220 +446,425 @@ export default function Dashboard() {
       </Layout>
     )
   }
-  const displayName = userData.firstName || user.user_metadata?.first_name || user.email.split('@')[0]
+
+  const displayName = userData?.first_name || user?.user_metadata?.first_name || user?.email?.split('@')[0]
 
   return (
     <Layout title="Dashboard">
-      <div className="container-fluid min-vh-100 d-flex align-items-center justify-content-center" style={{ backgroundColor: '#f8f9fa' }}>
-        <div className="row w-100 justify-content-center">
-          <div className="col-12 col-md-10 col-lg-8 col-xl-6">
-            <div className="card shadow-lg border-0 rounded-4">
-              <div className="card-body p-4 p-md-5">
-                {/* Greeting and Token Balance */}
-                <div className="d-flex justify-content-between align-items-center mb-4">
-                  <div>
-                    <h3 className="fw-bold mb-0">
-                      <span role="img" aria-label="coach" className="me-2">🧑‍💼</span>
-                      Good Morning, {displayName}!
-                    </h3>
-                  </div>
-                  <div className="text-end">
-                    <div className="text-muted" style={{ fontSize: '1rem' }}>Token Balance:</div>
-                    <div className="fw-bold" style={{ fontSize: '1.5rem' }}>{userData.tokens}</div>
-                  </div>
-                </div>
-
-                {/* Wellness Progress */}
-                <div className="card mb-4 border-0" style={{ background: '#f7fafd' }}>
-                  <div className="card-body p-4">
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <h5 className="fw-bold mb-0">Your Wellness Progress</h5>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => setShowAddGoal(true)}>
-                        + Add Goal
-                      </button>
-                    </div>
-                    {/* Debug info */}
-                    <div className="text-muted small mb-2">Debug: {userGoals.length} goals found</div>                    {userGoals.length === 0 ? (
-                      <div className="text-muted">No goals yet. Add your first goal.</div>
-                    ) : (
-                      userGoals.map((item) => {
-                        // progress is now an array (from left join), filter for this user
-                        const userProgress = Array.isArray(item.progress)
-                          ? item.progress.find(p => p.user_id === user.id)
-                          : item.progress;
-                        const percent = userProgress?.progress_percent || 0;
-                        return (
-                          <div key={item.id} className="mb-4">
-                            <div className="d-flex justify-content-between align-items-center mb-1">
-                              <span className="fw-semibold" style={{ fontSize: '1.1rem' }}>{item.coach_wellness_goals?.label || 'Goal'}</span>
-                              <button className="btn btn-link p-0 fw-bold text-primary" style={{ fontSize: '1rem' }} onClick={() => handleUpdateProgress(item)}>
-                                Update
-                              </button>
-                            </div>
-                            <div className="d-flex align-items-center">
-                              <div className="flex-grow-1 me-3">
-                                <div className="progress" style={{ height: '10px', background: '#e9ecef' }}>
-                                  <div className="progress-bar" role="progressbar" style={{ width: `${percent}%`, background: 'linear-gradient(90deg, #4fc3f7 60%, #b2ebf2 100%)' }} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}></div>
-                                </div>
-                              </div>
-                              <span className="fw-bold text-secondary" style={{ minWidth: '40px', textAlign: 'right' }}>{percent}%</span>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-
-                {/* Recommended Actions */}
-                <div className="card mb-4 border-0" style={{ background: '#f7fafd' }}>
-                  <div className="card-body p-4">
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-                      <h5 className="fw-bold mb-0">Today's Recommended Actions</h5>
-                      <button className="btn btn-outline-primary btn-sm" onClick={() => setShowAddAction(true)}>
-                        + Add Action
-                      </button>
-                    </div>
-                    {actionPlans.length === 0 ? (
-                      <div className="text-muted">No actions for today.</div>
-                    ) : (
-                      <ul className="list-unstyled mb-0">
-                        {actionPlans.map((action) => (
-                          <li key={action.id} className="d-flex align-items-center mb-3">
-                            <span className="me-3" style={{ fontSize: '1.05rem' }}>• {action.action}</span>
-                            <button 
-                              className="btn btn-outline-info btn-sm ms-auto" 
-                              disabled={action.completed}
-                              onClick={() => handleMarkComplete(action.id)}
-                              style={{ minWidth: '120px' }}
-                            >
-                              {action.completed ? 'Completed' : 'Mark Complete'}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-
-                {/* Encouragement Message */}
-                <div className="text-center mb-4">
-                  <div className="fw-semibold text-secondary" style={{ fontSize: '1.1rem' }}>
-                    Great progress! Keep it up and let us know how we can help further.
-                  </div>
-                </div>
-
-                {/* Chat Button */}
-                <div className="d-grid">
-                  <Link 
-                    href="/chat" 
-                    className="btn btn-primary btn-lg rounded-pill py-3"
-                    style={{ fontSize: '1.1rem', background: '#1976d2', border: 'none' }}
-                  >
-                    Chat with Your AI Coach
-                  </Link>
-                </div>
-              </div>
-            </div>
+      {/* Header Section - Sticky */}
+      <div className="sticky-top bg-gradient" style={{ 
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        marginTop: '-1.5rem',
+        marginLeft: '-15px',
+        marginRight: '-15px',
+        padding: '2rem 15px 1.5rem'
+      }}>
+        <div className="container">
+          <div className="d-flex justify-content-between align-items-center">
+            <h1 className="text-white mb-0 fw-bold fs-2">
+              👋 {getTimeOfDayGreeting()}, {displayName}!
+            </h1>
+            <span className="badge bg-light text-dark rounded-pill px-3 py-2 fs-6">
+              <strong>Tokens: {userData?.tokens || 0}</strong>
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Add Goal Modal */}
-      {showAddGoal && (
-        <div className="modal fade show d-block" tabIndex="-1" style={{ background: 'rgba(0,0,0,0.3)' }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Add New Goal</h5>
-                <button type="button" className="btn-close" onClick={() => setShowAddGoal(false)}></button>
-              </div>
-              <div className="modal-body">
-                <input type="text" className="form-control mb-3" placeholder="Goal name" value={newGoalName} onChange={e => setNewGoalName(e.target.value)} />
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowAddGoal(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleAddGoal} disabled={!newGoalName.trim()}>Add Goal</button>
+      {/* Main Content Container */}
+      <div className="container" style={{ maxWidth: '600px', marginTop: '2rem' }}>
+        
+        {/* Achievement Banner */}
+        {recentAchievement && (
+          <div className="alert alert-success alert-dismissible fade show rounded-4 shadow-sm mb-4" role="alert">
+            <div className="d-flex align-items-center">
+              <div className="fs-3 me-3">🏆</div>
+              <div>
+                <h5 className="alert-heading mb-1">{recentAchievement.title}</h5>
+                <p className="mb-0">{recentAchievement.description}</p>
               </div>
             </div>
+            <button type="button" className="btn-close" onClick={() => setRecentAchievement(null)}></button>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Add Action Modal */}
-      {showAddAction && (
-        <div className="modal fade show d-block" tabIndex="-1" style={{ background: 'rgba(0,0,0,0.3)' }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Add New Action</h5>
-                <button type="button" className="btn-close" onClick={() => setShowAddAction(false)}></button>
-              </div>
-              <div className="modal-body">
-                <input type="text" className="form-control mb-3" placeholder="Action description" value={newActionDesc} onChange={e => setNewActionDesc(e.target.value)} />
-                <select className="form-select mb-3" value={newActionGoalId} onChange={e => setNewActionGoalId(e.target.value)}>
-                  <option value="">Select goal</option>
-                  {progress.map((item) => (
-                    <option key={item.goal_id} value={item.goal_id}>{item.goals?.name || 'Goal'}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowAddAction(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleAddAction} disabled={!newActionDesc.trim() || !newActionGoalId}>Add Action</button>
-              </div>
+        {/* Wellness Progress Section */}
+        <div className="card shadow-lg rounded-4 mb-4">
+          <div className="card-body p-4">
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <h2 className="card-title fw-bold mb-0">Your Wellness Progress</h2>              <button 
+                className="btn btn-primary rounded-pill"
+                onClick={() => setShowGoalModal(true)}
+              >
+                <i className="bi bi-plus-circle me-1"></i>Add Goal
+              </button>
             </div>
+            
+            {userGoals.length === 0 ? (
+              <div className="text-center py-5">
+                <div className="fs-1 mb-3">🎯</div>
+                <h4 className="text-muted mb-2">No wellness goals yet</h4>
+                <p className="text-muted">Let's set up your first wellness goal to get started!</p>                <button 
+                  className="btn btn-primary rounded-pill mt-2"
+                  onClick={() => {
+                    setShowGoalModal(true)
+                    fetchAvailableGoals()
+                  }}
+                >
+                  <i className="bi bi-star me-1"></i>Create Your First Goal
+                </button>
+              </div>
+            ) : (
+              userGoals.map((userGoal) => {
+                const goal = userGoal.coach_wellness_goals
+                const progressPercent = getProgressForGoal(goal.goal_id)
+                const suggestedAction = getSuggestedActionForGoal(goal.goal_id)
+                const streakDays = getStreakDays(goal.goal_id)
+                const isExpanded = expandedGoals.has(goal.goal_id)
+                
+                return (
+                  <div key={userGoal.id} className="card border-0 shadow-sm rounded-3 mb-3">
+                    <div className="card-body p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-3">
+                        <div className="flex-grow-1">
+                          <h5 className="card-title fw-bold mb-1 d-flex align-items-center">
+                            {goal.label}
+                            {streakDays > 0 && (
+                              <span className="badge bg-warning text-dark rounded-pill ms-2 fs-6">
+                                🔥 {streakDays}-day streak!
+                              </span>
+                            )}
+                          </h5>
+                        </div>
+                        <div className="dropdown">
+                          <button className="btn btn-sm btn-outline-secondary rounded-pill" type="button" data-bs-toggle="dropdown">
+                            <i className="bi bi-three-dots"></i>
+                          </button>
+                          <ul className="dropdown-menu">
+                            <li>
+                              <a className="dropdown-item" href="#" 
+                                 onClick={() => {
+                                   const newProgress = prompt(`Update progress for ${goal.label} (0-100):`, progressPercent)
+                                   if (newProgress !== null && !isNaN(newProgress)) {
+                                     updateProgress(goal.goal_id, Math.min(100, Math.max(0, parseInt(newProgress))))
+                                   }
+                                 }}>
+                                <i className="bi bi-pencil me-2"></i>Update Progress
+                              </a>
+                            </li>
+                            <li><a className="dropdown-item text-danger" href="#"><i className="bi bi-trash me-2"></i>Remove Goal</a></li>
+                          </ul>
+                        </div>
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div className="mb-3">
+                        <div className="progress rounded-pill" style={{ height: '8px' }}>
+                          <div 
+                            className="progress-bar rounded-pill" 
+                            style={{ 
+                              width: `${progressPercent}%`,
+                              background: 'linear-gradient(90deg, #667eea 0%, #764ba2 100%)'
+                            }}
+                          ></div>
+                        </div>
+                        <small className="text-muted">{progressPercent}% complete</small>
+                      </div>
+                      
+                      {/* Action Area */}
+                      <div className="mb-2">
+                        {suggestedAction ? (
+                          <div className="card bg-light border-0 rounded-3">
+                            <div className="card-body p-3">
+                              <div className="small text-muted mb-1">Suggested Action</div>
+                              <p className="mb-3">{suggestedAction.action_text}</p>
+                              <div className="d-flex gap-2">
+                                <button 
+                                  className="btn btn-primary btn-sm rounded-pill"
+                                  onClick={() => acceptSuggestedAction(suggestedAction.id)}
+                                >
+                                  <i className="bi bi-check-circle me-1"></i>Accept
+                                </button>
+                                <button 
+                                  className="btn btn-outline-primary btn-sm rounded-pill"
+                                  onClick={() => generateSuggestedAction(goal.goal_id, goal.label)}
+                                  disabled={suggestingGoal === goal.goal_id}
+                                >
+                                  <i className="bi bi-arrow-clockwise me-1"></i>
+                                  {suggestingGoal === goal.goal_id ? 'Generating...' : 'Suggest Another'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>                        ) : (
+                          <div className="text-center py-3">
+                            <div className="mb-2">
+                              <i className="bi bi-lightbulb text-muted" style={{ fontSize: '1.5rem' }}></i>
+                            </div>
+                            <p className="small text-muted mb-3">No action suggestions yet</p>                            <button 
+                              className="btn btn-primary rounded-pill"
+                              onClick={() => generateSuggestedAction(goal.goal_id, goal.label)}
+                              disabled={suggestingGoal === goal.goal_id}
+                            >
+                              <i className="bi bi-star me-1"></i>
+                              {suggestingGoal === goal.goal_id ? 'Generating suggestion...' : 'Get AI Suggestion'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
-      )}
 
-      {/* Update Progress Modal */}
-      {showUpdateProgress && (
-        <div className="modal fade show d-block" tabIndex="-1" style={{ background: 'rgba(0,0,0,0.3)' }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">Update Progress: {selectedGoal?.coach_wellness_goals?.label}</h5>
-                <button type="button" className="btn-close" onClick={() => setShowUpdateProgress(false)}></button>
-              </div>
-              <div className="modal-body">
-                <label className="form-label">Progress Percentage</label>
-                <input 
-                  type="range" 
-                  className="form-range mb-3" 
-                  min="0" 
-                  max="100" 
-                  value={newProgress} 
-                  onChange={e => setNewProgress(parseInt(e.target.value))}
-                />
-                <div className="text-center">
-                  <span className="badge bg-primary fs-6">{newProgress}%</span>
+        {/* Today's Recommended Actions */}
+        <div className="card shadow-lg rounded-4 mb-4">
+          <div className="card-body p-4">
+            <div className="d-flex justify-content-between align-items-center mb-4">
+              <h2 className="card-title fw-bold mb-0">Today's Recommended Actions</h2>
+              <button className="btn btn-outline-primary rounded-pill">
+                <i className="bi bi-plus-circle me-1"></i>Add My Own
+              </button>
+            </div>
+            
+            {getAcceptedActions().length === 0 ? (
+              <div className="text-center py-4">
+                <div className="fs-1 mb-3">📝</div>
+                <h5 className="text-muted mb-2">No actions for today</h5>
+                <p className="text-muted">Accept some suggestions from your goals above!</p>
+                <div className="alert alert-info rounded-3 mt-3">
+                  <i className="bi bi-info-circle me-2"></i>
+                  <strong>Keep your streak!</strong> Daily check-ins help build healthy habits.
                 </div>
-                <div className="progress mt-3" style={{ height: '10px' }}>
-                  <div 
-                    className="progress-bar" 
-                    role="progressbar" 
-                    style={{ width: `${newProgress}%`, background: 'linear-gradient(90deg, #4fc3f7 60%, #b2ebf2 100%)' }} 
-                    aria-valuenow={newProgress} 
-                    aria-valuemin={0} 
-                    aria-valuemax={100}
-                  ></div>
-                </div>
               </div>
-              <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setShowUpdateProgress(false)}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleSaveProgress}>Update Progress</button>
+            ) : (
+              <>
+                <div className="alert alert-info rounded-3 mb-3">
+                  <i className="bi bi-calendar-check me-2"></i>
+                  <strong>Keep your streak!</strong> You have {getAcceptedActions().length} action{getAcceptedActions().length !== 1 ? 's' : ''} to complete today.
+                </div>
+                
+                {getAcceptedActions().map((action, index) => (
+                  <div key={action.id} className="toast-container position-relative mb-2">
+                    <div className="card border-0 bg-light rounded-3 shadow-sm">
+                      <div className="card-body p-3">
+                        <div className="d-flex justify-content-between align-items-start">
+                          <div className="flex-grow-1">
+                            <div className="small text-muted mb-1">
+                              <i className="bi bi-robot me-1"></i>[AI Coach]:
+                            </div>
+                            <p className="mb-0">"{action.action_text}"</p>
+                          </div>
+                          <div className="d-flex gap-1 ms-3">
+                            <button 
+                              className="btn btn-primary btn-sm rounded-pill"
+                              onClick={() => markActionDone(action.id, action.goal_id)}
+                            >
+                              <i className="bi bi-check-circle me-1"></i>Mark as Done
+                            </button>
+                            <button className="btn btn-sm btn-outline-secondary rounded-circle">
+                              <i className="bi bi-pencil"></i>
+                            </button>
+                            <button className="btn btn-sm btn-outline-danger rounded-circle">
+                              <i className="bi bi-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Persistent Chat CTA - Fixed at bottom */}
+      <div className="position-fixed bottom-0 start-0 end-0 p-3" style={{ zIndex: 1000 }}>
+        <div className="container" style={{ maxWidth: '600px' }}>
+          <Link href="/chat" className="btn btn-primary w-100 rounded-pill py-3 shadow-lg text-decoration-none">
+            <i className="bi bi-chat-dots me-2"></i>
+            💬 Chat about my progress with your AI Coach
+          </Link>
+        </div>
+      </div>
+
+      {/* Bottom padding to account for fixed chat button */}
+      <div style={{ height: '100px' }}></div>
+
+      <style jsx>{`
+        .bg-gradient {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        }
+        
+        .card {
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .card:hover {
+          transform: translateY(-2px);
+        }
+        
+        .progress-bar {
+          transition: width 0.3s ease;
+        }
+        
+        .btn {
+          transition: all 0.2s ease;
+        }
+        
+        .btn:hover {
+          transform: translateY(-1px);
+        }
+        
+        .toast-container {
+          animation: fadeInUp 0.3s ease;
+        }
+        
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        
+        .alert {
+          border: none;
+        }
+        
+        .shadow-lg {
+          box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+        }
+          .shadow-sm {
+          box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075) !important;
+        }
+
+        .goal-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+          transition: all 0.2s ease-in-out;
+        }
+
+        .modal {
+          z-index: 1060;
+        }
+      `}</style>
+
+      {/* Goal Selection Modal */}
+      {showGoalModal && (
+        <div className="modal d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content border-0 shadow-lg">
+              <div className="modal-header bg-primary text-white">
+                <h5 className="modal-title">
+                  <i className="bi bi-star me-2"></i>Add a Wellness Goal
+                </h5>
+                <button 
+                  type="button" 
+                  className="btn-close btn-close-white" 
+                  onClick={() => setShowGoalModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body p-4">
+                <div className="row">
+                  <div className="col-md-8">
+                    <h6 className="fw-bold mb-3">Choose from Popular Goals</h6>                    <div className="row g-2">
+                      {availableGoals.slice(0, 8).map((goal) => (
+                        <div key={goal.id} className="col-sm-6">
+                          <div 
+                            className="card border-0 bg-light h-100 goal-card"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => addGoalToUser(goal.id)}
+                          >
+                            <div className="card-body p-3">
+                              <h6 className="card-title mb-1">{goal.label}</h6>
+                              <p className="card-text small text-muted mb-0">
+                                {goal.description}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="col-md-4">
+                    <h6 className="fw-bold mb-3">Create Custom Goal</h6>
+                    <div className="card border-0 bg-light">
+                      <div className="card-body p-3">
+                        <div className="mb-3">
+                          <label className="form-label small fw-bold">Goal Title</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="e.g., Read 30 minutes daily"
+                            value={newGoalLabel}
+                            onChange={(e) => setNewGoalLabel(e.target.value)}
+                          />
+                        </div>
+                        <div className="mb-3">
+                          <label className="form-label small fw-bold">Description (Optional)</label>
+                          <textarea
+                            className="form-control"
+                            rows="3"
+                            placeholder="Describe your goal..."
+                            value={newGoalDescription}
+                            onChange={(e) => setNewGoalDescription(e.target.value)}
+                          />
+                        </div>
+                        <button
+                          className="btn btn-success w-100"
+                          onClick={createCustomGoal}
+                          disabled={creatingGoal || !newGoalLabel.trim()}
+                        >
+                          {creatingGoal ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm me-2"></span>
+                              Creating...
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-plus-circle me-1"></i>
+                              Create Goal
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+        </div>      )}
+
+      {/* Toast Notification */}
+      {toast.show && (
+        <div 
+          className={`position-fixed top-0 end-0 m-3 p-3 rounded-3 shadow-lg ${
+            toast.type === 'error' ? 'bg-danger text-white' : 'bg-success text-white'
+          }`}
+          style={{ zIndex: 1050, minWidth: '300px' }}
+        >
+          <div className="d-flex align-items-center">
+            <span className="me-2">
+              {toast.type === 'error' ? '❌' : '✅'}
+            </span>
+            <span className="flex-grow-1">{toast.message}</span>
+            <button 
+              className="btn-close btn-close-white ms-2" 
+              onClick={() => setToast({ show: false, message: '', type: 'success' })}
+              style={{ fontSize: '0.8rem' }}
+            ></button>
+          </div>
         </div>
       )}
-
-      {/* NOTE: If you see CORS errors when using Supabase, make sure:
-      1. You are using the official Supabase JS client for all DB/auth calls (as in this file).
-      2. Your Supabase project settings (in the Supabase dashboard) include http://localhost:3000 in Auth > URL Configuration > Allowed Origins (CORS).
-      3. You are NOT calling Supabase REST endpoints directly from the browser. Always use the Supabase JS client.
-      4. Your supabaseClient.js uses the correct project URL and anon key. */}
     </Layout>
   )
 }

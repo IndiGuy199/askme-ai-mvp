@@ -2,11 +2,6 @@
 node_modules/
 web/node_modules/
 */node_modules/
-**/node_modules/
-
-# Package files
-package-lock.json
-yarn.lock
 
 # Root package.json
 package.json
@@ -14,14 +9,6 @@ package.json
 # Next.js build output
 web/.next/
 .next/
-**/.next/
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
 # IDE files
 .vscode/

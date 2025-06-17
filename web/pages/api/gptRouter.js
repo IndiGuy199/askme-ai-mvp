@@ -367,26 +367,14 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
       .eq('user_id', user_id)
       .order('created_at', { ascending: true }) // Chronological order for better context
       .limit(limit);
-      
-    if (msgError) {
+        if (msgError) {
       console.error('Error fetching messages for memory summarization:', msgError);
       throw new Error(`Error fetching messages: ${msgError.message}`);
     }
     
     console.log(`Found ${messages?.length || 0} messages for memory summary update`);
-    if (!messages || messages.length < 2) {
-      console.log('Not enough new messages for meaningful summary update');
-      try {
-        const memoryLogger = require('../../lib/memoryLogger');
-        memoryLogger.logMemoryEvent(user_id, userData?.email, 'INSUFFICIENT_NEW_MESSAGES', 
-          { messageCount: messages?.length || 0, minimumRequired: 2 });
-      } catch (logErr) {
-        console.error('Error logging insufficient messages:', logErr);
-      }
-      return currentSummary; // Return existing summary if no new content
-    }
-
-    // Get current user profile for context
+    
+    // Get current user profile for context and existing summary
     let profile = null;
     let currentSummary = '';
     
@@ -411,7 +399,19 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
     } catch (profileFetchError) {
       console.error('Exception fetching profile:', profileFetchError);
       // Continue without profile - we'll create one below
-    }    // Improved approach: Focus on most recent meaningful conversation
+    }
+    
+    if (!messages || messages.length < 2) {
+      console.log('Not enough new messages for meaningful summary update');
+      try {
+        const memoryLogger = require('../../lib/memoryLogger');
+        memoryLogger.logMemoryEvent(user_id, userData?.email, 'INSUFFICIENT_NEW_MESSAGES', 
+          { messageCount: messages?.length || 0, minimumRequired: 2 });
+      } catch (logErr) {
+        console.error('Error logging insufficient messages:', logErr);
+      }
+      return currentSummary; // Return existing summary if no new content
+    }// Improved approach: Focus on most recent meaningful conversation
     // Get last 10-12 messages but prioritize user messages and longer responses
     const recentMessages = messages
       .slice(-12) // Get last 12 messages for context
@@ -1186,8 +1186,7 @@ ${promptConfig.memory.updateSummary}`;
       let is_init_message = false;
       
       if (message === '__INIT_CHAT__') {
-        actualMessage = `Please greet me warmly by name and recall our previous conversations. My name is ${user.first_name || 'there'}. Reference any goals, challenges, or context from our past discussions.`;
-        is_init_message = true;
+        actualMessage = `Please greet me warmly by name and recall our previous conversations. My name is ${user.first_name || 'there'}. Reference any goals, challenges, or context from our past discussions.`;        is_init_message = true;
         console.log('Converting __INIT_CHAT__ to personalized greeting request');
       }
 

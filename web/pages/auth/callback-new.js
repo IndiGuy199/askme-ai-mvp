@@ -16,36 +16,16 @@ export default function AuthCallback() {
           console.error('❌ Session error:', sessionError)
           router.replace('/login')
           return
-        }        console.log('✅ Session found for user:', session.user.email)
-        console.log('🕐 Check timestamp:', new Date().toISOString())
+        }
+
+        console.log('✅ Session found for user:', session.user.email)
         
-        // First check if user exists at all
-        const { data: existingUsers, error: checkError } = await supabase
+        // Check if user profile exists and is complete
+        const { data: userProfile } = await supabase
           .from('users')
-          .select('*')
+          .select('profile_completed')
           .eq('email', session.user.email)
-        
-        console.log('🔍 User existence check:', { 
-          email: session.user.email, 
-          userCount: existingUsers?.length || 0, 
-          users: existingUsers,
-          checkError 
-        })
-        
-        if (checkError) {
-          console.error('❌ Error checking user existence:', checkError)
-          router.replace('/profile-setup')
-          return
-        }
-        
-        if (!existingUsers || existingUsers.length === 0) {
-          console.log('👤 New user, redirecting to profile setup')
-          router.replace('/profile-setup')
-          return
-        }
-        
-        const userProfile = existingUsers[0]
-        console.log('👤 User profile found:', userProfile)
+          .single()
         
         if (userProfile?.profile_completed) {
           console.log('✅ Profile complete, redirecting to dashboard')
