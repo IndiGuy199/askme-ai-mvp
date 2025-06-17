@@ -2,12 +2,14 @@ import React, { useState, useRef, useEffect } from 'react'
 import styles from '../styles/Chat.module.css'
 import ReactMarkdown from 'react-markdown'
 
-export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onEstimateCost, estimateTokens }) {  const [messages, setMessages] = useState([])
+export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estimateTokens }) {
+  const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(true) // Start with loading state
   const [showWarning, setShowWarning] = useState(false)
   const [userData, setUserData] = useState(null)
   const [savingFavorite, setSavingFavorite] = useState(null) // Track which message is being saved
+  const [savedFavorites, setSavedFavorites] = useState(new Set()) // Track which messages have been saved
   const [chatInitialized, setChatInitialized] = useState(false) // Track if chat has been initialized
   const [chatRestored, setChatRestored] = useState(false) // Track if chat was restored from storage
   const bottomRef = useRef(null)
@@ -66,21 +68,34 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
     } catch (error) {
       console.error('Error clearing chat state:', error)
     }
-  }
-  // Fetch user data and initialize chat on component mount
+  }  // Fetch user data and initialize chat on component mount
   useEffect(() => {
     async function initializeChat() {
       if (!userEmail) return
       
       try {
+        // Set a timeout for the entire initialization process
+        const initTimeout = setTimeout(() => {
+          console.warn('Chat initialization taking too long, showing fallback')
+          setMessages([{
+            role: 'assistant',
+            content: 'Hello! Welcome to AskMe AI. How can I help you today?',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            tokensUsed: 0
+          }])
+          setChatInitialized(true)
+          setIsLoading(false)
+        }, 15000) // 15 second timeout
+        
         // First try to restore previous chat state
         const restoredMessages = loadChatState()
-          if (restoredMessages && restoredMessages.length > 0) {
+        if (restoredMessages && restoredMessages.length > 0) {
           console.log('Restoring previous chat session with', restoredMessages.length, 'messages')
           setMessages(restoredMessages)
           setChatInitialized(true)
           setChatRestored(true) // Mark that chat was restored
           setIsLoading(false)
+          clearTimeout(initTimeout)
           return
         }
 
@@ -95,7 +110,11 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
           // Create personalized greeting with memory recall
           await sendInitialGreeting(userData)
           setChatInitialized(true)
+        } else {
+          throw new Error('Failed to fetch user data')
         }
+        
+        clearTimeout(initTimeout)
       } catch (err) {
         console.error('Error initializing chat:', err)
         setMessages([{
@@ -105,7 +124,6 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
           tokensUsed: 0
         }])
         setChatInitialized(true)
-      } finally {
         setIsLoading(false)
       }
     }
@@ -136,8 +154,10 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
       } catch (memCheckErr) {
         console.error('Error checking memory status:', memCheckErr);
       }
+        // Send special startup message to trigger memory context
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
       
-      // Send special startup message to trigger memory context
       const res = await fetch('/api/gptRouter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -145,8 +165,11 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
           email: userEmail,
           message: "__INIT_CHAT__", // Special command to initialize chat
           isFirstMessage: true
-        })
+        }),
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
 
       const responseText = await res.text()
       let data
@@ -178,6 +201,9 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
         if (onTokenUsed) {
           onTokenUsed(data.tokensUsed || data.tokens || 1)
         }
+      } else {
+        // If no valid response, show fallback
+        throw new Error('No valid response from API')
       }
     } catch (err) {
       console.error('Error sending initial greeting:', err)
@@ -188,11 +214,19 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         tokensUsed: 0
       }])
+    } finally {
+      // Always clear loading state
+      setIsLoading(false)
     }
   }
-
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end',
+        inline: 'nearest'
+      })
+    }
   }, [messages])
   
   // Estimate cost when input changes
@@ -394,19 +428,25 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
       });
       
       const result = await response.json();
-      
-      if (response.ok) {
+        if (response.ok) {
         // Show success notification
         console.log('Message saved to favorites successfully');
-        // You could add a toast notification here
+        
+        // Add to saved favorites set for immediate UI feedback
+        setSavedFavorites(prev => new Set([...prev, messageIndex]));
+        
+        // Clear the saving state after a short success animation
+        setTimeout(() => {
+          setSavingFavorite(null);
+        }, 1500); // Show checkmark for 1.5 seconds
       } else {
         console.error('Failed to save to favorites:', result.error);
         alert('Failed to save to favorites. Please try again.');
+        setSavingFavorite(null);
       }
     } catch (error) {
       console.error('Error saving to favorites:', error);
       alert('Error saving to favorites. Please try again.');
-    } finally {
       setSavingFavorite(null);
     }
   };
@@ -419,40 +459,69 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
   }, [messages, chatInitialized, userEmail])
 
   return (
-    <div className="d-flex flex-column h-100">      {/* Messages Area */}
-      <div className="flex-grow-1 p-3 overflow-auto" style={{ backgroundColor: '#f8f9fa', minHeight: '400px' }}>
-        <div className="d-flex flex-column gap-3">          {/* Context Management Info */}
-          {messages.length > contextLength && (
-            <div className={styles.contextInfo}>
-              <div className={styles.contextContent}>
-                <div className={styles.contextText}>
-                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16" className="me-2">
-                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/>
-                  </svg>
-                  Using last <strong>{contextLength}</strong> messages for context optimization
-                </div>
-                <button className={`btn btn-outline-secondary btn-sm ${styles.clearBtn}`} onClick={clearContext}>
-                  <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16" className="me-1">
-                    <path d="M2.5 1a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1H3v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V4h.5a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H10a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1H2.5zm3 4a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM8 5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7A.5.5 0 0 1 8 5zm3 .5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 1 0z"/>
-                  </svg>
-                  Clear Chat
+    <div className="chat-container">
+      {/* Context Bar */}
+      <div className="context-bar">
+        <div className="context-actions">
+          <button className="context-btn enhanced-mode" title="Enhanced Mode">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/>
+            </svg>
+            Enhanced
+          </button>
+          
+          <button className="context-btn clear-chat" onClick={clearContext} title="Clear Chat">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
+              <path fillRule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1-1V2a1 1 0 011-1H6a1 1 0 011-1h2a1 1 0 011 1h3.5a1 1 0 011 1v1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+            </svg>
+            Clear
+          </button>
+          
+          <button className="context-btn export-chat" title="Export Chat">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M.5 9.9a.5.5 0 01.5.5v2.5a1 1 0 001 1h12a1 1 0 001-1v-2.5a.5.5 0 011 0v2.5a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.5a.5.5 0 01.5-.5z"/>
+              <path d="M7.646 11.854a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 10.293V1.5a.5.5 0 00-1 0v8.793L5.354 8.146a.5.5 0 10-.708.708l3 3z"/>
+            </svg>
+            Export
+          </button>
+        </div>
+        
+        {/* Session Info */}
+        <div className="session-info">
+          <span className="message-count">{messages.length} messages</span>
+          {chatRestored && (
+            <span className="session-status">
+              <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
+              </svg>
+              Restored
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Messages Area */}
+      <div className="messages-area">
+        <div className="messages-content">
+          {/* Chat Restored Indicator */}
+          {chatRestored && messages.length > 0 && (
+            <div className="chat-restored-banner">
+              <div className="restored-content">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                  <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
+                </svg>
+                <span>Chat session restored from your previous visit</span>
+                <button className="start-fresh-btn" onClick={clearContext}>
+                  Start Fresh
                 </button>
               </div>
             </div>
-          )}          {/* Chat Restored Indicator */}
-          {chatRestored && messages.length > 0 && (
-            <div className="alert alert-info d-flex align-items-center py-2 px-3" style={{ fontSize: '0.85rem' }}>
-              <i className="bi bi-clock-history me-2"></i>
-              <span>Chat session restored from your previous visit</span>
-              <button 
-                className="btn btn-sm btn-outline-primary ms-auto"
-                onClick={clearContext}
-                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
-              >
-                Start Fresh
-              </button>
-            </div>
-          )}{/* Messages */}
+          )}
+
+          {/* Messages */}
           {messages.map((msg, idx) => (
             <div key={idx} className={`${styles.messageContainer} ${msg.role === 'user' ? styles.userMessage : styles.assistantMessage}`}>
               {msg.role === 'assistant' && (
@@ -479,21 +548,29 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
                   <small className={styles.messageTime}>{msg.time}</small>
                   {msg.tokensUsed > 0 && (
                     <small className={styles.messageTokens}>{msg.tokensUsed} tokens</small>
-                  )}
-                  {msg.role === 'assistant' && !msg.error && (
+                  )}                  {msg.role === 'assistant' && !msg.error && (
                     <button
-                      className="btn btn-sm btn-outline-secondary ms-2"
                       onClick={() => saveToFavorites(msg.content, idx)}
                       disabled={savingFavorite === idx}
                       title="Save to favorites"
-                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                      className={`favorite-button ${savedFavorites.has(idx) ? 'saved' : ''}`}
                     >
                       {savingFavorite === idx ? (
-                        <span className="spinner-border spinner-border-sm me-1" style={{ width: '0.7rem', height: '0.7rem' }}></span>
+                        <svg width="12" height="12" className="loading-spinner" viewBox="0 0 16 16">
+                          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="37.7" strokeDashoffset="37.7">
+                            <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 8 8;360 8 8"/>
+                          </circle>
+                        </svg>
+                      ) : savedFavorites.has(idx) ? (
+                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16" className="checkmark-icon">
+                          <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                        </svg>
                       ) : (
-                        <i className="bi bi-star me-1"></i>
+                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                          <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
+                        </svg>
                       )}
-                      Save
+                      {savedFavorites.has(idx) ? 'Saved!' : 'Save'}
                     </button>
                   )}
                 </div>
@@ -524,37 +601,482 @@ export default function ChatBox({ userEmail, onTokenUsed, contextLength = 5, onE
                 </div>
               </div>
             </div>
-          )}
-        </div>
+          )}        </div>
         <div ref={bottomRef} />
       </div>
 
       {/* Input Area */}
-      <div className="p-3 border-top bg-white">        {showWarning && (
-          <div className="alert alert-warning small py-1 mb-2">
+      <div className="chat-input-area">
+        {showWarning && (
+          <div className="warning-message">
             ⚠️ This message may use many tokens. Consider shorter messages to reduce cost.
           </div>
         )}
-        <div className="input-group">
+        <div className="input-container">
           <textarea
-            className="form-control"
+            className="message-input"
             placeholder="Type a message..."
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             disabled={isLoading}
             rows="1"
-            style={{ resize: 'none' }}
           />
           <button 
-            className="btn btn-primary" 
+            className="send-button" 
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
           >
-            {isLoading ? 'Sending...' : 'Send'}
+            {isLoading ? (
+              <svg width="16" height="16" className="loading-spinner" viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="37.7" strokeDashoffset="37.7">
+                  <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 8 8;360 8 8"/>
+                </circle>
+              </svg>
+            ) : (
+              <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M15.854.146a.5.5 0 0 1 .11.54L13.026 8.47l2.938 7.784a.5.5 0 0 1-.648.648L7.532 14.026.146 16.854a.5.5 0 0 1-.54-.11l13.5-13.5a.5.5 0 0 1 .748-.098z"/>
+              </svg>
+            )}
           </button>
         </div>
-      </div>
+      </div>      <style jsx>{`
+        .chat-container {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          background: white;
+        }
+        
+        /* Context Bar */
+        .context-bar {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.75rem 1.5rem;
+          background: rgba(255, 255, 255, 0.95);
+          border-bottom: 1px solid rgba(229, 231, 235, 0.8);
+          backdrop-filter: blur(10px);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        
+        .context-actions {
+          display: flex;
+          gap: 0.5rem;
+          align-items: center;
+        }
+        
+        .context-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.375rem;
+          padding: 0.5rem 0.875rem;
+          border: 1px solid rgba(229, 231, 235, 0.8);
+          border-radius: 20px;
+          background: rgba(255, 255, 255, 0.9);
+          color: #6b7280;
+          font-size: 0.8rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          backdrop-filter: blur(10px);
+        }
+        
+        .context-btn:hover {
+          background: rgba(248, 250, 252, 0.95);
+          border-color: rgba(156, 163, 175, 0.6);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        }
+        
+        .context-btn.enhanced-mode {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+          color: #667eea;
+          border-color: rgba(102, 126, 234, 0.3);
+        }
+        
+        .context-btn.enhanced-mode:hover {
+          background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+          border-color: rgba(102, 126, 234, 0.5);
+        }
+        
+        .context-btn.clear-chat {
+          color: #ef4444;
+          border-color: rgba(239, 68, 68, 0.3);
+        }
+        
+        .context-btn.clear-chat:hover {
+          background: rgba(239, 68, 68, 0.05);
+          border-color: rgba(239, 68, 68, 0.4);
+        }
+        
+        .session-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          font-size: 0.8rem;
+          color: #6b7280;
+        }
+        
+        .message-count {
+          font-weight: 500;
+        }
+        
+        .session-status {
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          color: #10b981;
+          font-weight: 500;
+        }
+        
+        /* Chat Restored Banner */
+        .chat-restored-banner {
+          margin: 1rem 1.5rem;
+          padding: 1rem;
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(99, 102, 241, 0.05) 100%);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          border-radius: 16px;
+          backdrop-filter: blur(10px);
+        }
+        
+        .restored-content {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          color: #3b82f6;
+          font-size: 0.875rem;
+          font-weight: 500;
+        }
+        
+        .start-fresh-btn {
+          background: rgba(59, 130, 246, 0.1);
+          color: #3b82f6;
+          border: 1px solid rgba(59, 130, 246, 0.3);
+          border-radius: 12px;
+          padding: 0.375rem 0.75rem;
+          font-size: 0.75rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          margin-left: auto;
+        }
+        
+        .start-fresh-btn:hover {
+          background: rgba(59, 130, 246, 0.15);
+          border-color: rgba(59, 130, 246, 0.5);
+          transform: translateY(-1px);
+        }
+          .messages-area {
+          flex: 1;
+          overflow-y: auto;
+          background: linear-gradient(to bottom, #f8fafc 0%, #f1f5f9 100%);
+          min-height: 500px;
+          position: relative;
+        }
+        
+        .messages-area::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 20px;
+          background: linear-gradient(to bottom, rgba(248, 250, 252, 0.8), transparent);
+          pointer-events: none;
+          z-index: 1;
+        }
+        
+        .messages-content {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          padding: 1.5rem;
+        }
+          /* Input Area - Sticky and Modern */
+        .chat-input-area {
+          position: sticky;
+          bottom: 0;
+          background: rgba(255, 255, 255, 0.95);
+          backdrop-filter: blur(20px);
+          border-top: 1px solid rgba(229, 231, 235, 0.8);
+          padding: 1.25rem 1.5rem;
+          z-index: 10;
+        }
+        
+        .chat-input-area::before {
+          content: '';
+          position: absolute;
+          top: -20px;
+          left: 0;
+          right: 0;
+          height: 20px;
+          background: linear-gradient(to top, rgba(255, 255, 255, 0.8), transparent);
+          pointer-events: none;
+        }
+        
+        .warning-message {
+          background: linear-gradient(135deg, rgba(251, 146, 60, 0.1) 0%, rgba(249, 115, 22, 0.1) 100%);
+          color: #f59e0b;
+          border: 1px solid rgba(251, 146, 60, 0.3);
+          border-radius: 12px;
+          padding: 0.75rem 1rem;
+          margin-bottom: 1rem;
+          font-size: 0.875rem;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        
+        .input-container {
+          display: flex;
+          align-items: flex-end;
+          gap: 0.75rem;
+          background: white;
+          border: 2px solid rgba(229, 231, 235, 0.8);
+          border-radius: 24px;
+          padding: 0.75rem 1rem;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+          transition: all 0.3s ease;
+        }
+        
+        .input-container:focus-within {
+          border-color: rgba(16, 185, 129, 0.5);
+          box-shadow: 0 8px 32px rgba(16, 185, 129, 0.15);
+          transform: translateY(-2px);
+        }        .message-input {
+          flex: 1;
+          border: none;
+          outline: none;
+          resize: none;
+          font-size: 0.95rem;
+          line-height: 1.5;
+          font-family: inherit;
+          background: transparent;
+          min-height: 24px;
+          max-height: 120px;
+          overflow-y: auto;
+          color: #374151;
+        }
+        
+        .message-input:disabled {
+          color: #6b7280;
+          cursor: not-allowed;
+        }
+        
+        .message-input::placeholder {
+          color: #9ca3af;
+          font-weight: 400;
+        }
+          .send-button {
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: white;
+          border: none;
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          flex-shrink: 0;
+          box-shadow: 0 4px 16px rgba(16, 185, 129, 0.25);
+        }
+        
+        .send-button:hover:not(:disabled) {
+          background: linear-gradient(135deg, #059669 0%, #047857 100%);
+          transform: scale(1.05) translateY(-2px);
+          box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+        }
+        
+        .send-button:focus {
+          outline: 3px solid rgba(16, 185, 129, 0.4);
+          outline-offset: 2px;
+        }
+        
+        .send-button:disabled {
+          background: #e5e7eb;
+          color: #9ca3af;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .loading-spinner {
+          animation: spin 1s linear infinite;
+        }
+          @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+          .favorite-button {
+          background: rgba(66, 133, 244, 0.1);
+          color: #4285f4;
+          border: 1px solid rgba(66, 133, 244, 0.3);
+          border-radius: 15px;
+          padding: 0.25rem 0.5rem;
+          font-size: 0.75rem;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .favorite-button:hover:not(:disabled) {
+          background: rgba(66, 133, 244, 0.2);
+          border-color: rgba(66, 133, 244, 0.5);
+          transform: translateY(-1px);
+        }
+        
+        .favorite-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        
+        .favorite-button.saved {
+          background: rgba(34, 197, 94, 0.1);
+          color: #22c55e;
+          border-color: rgba(34, 197, 94, 0.3);
+        }
+        
+        .favorite-button.saved:hover:not(:disabled) {
+          background: rgba(34, 197, 94, 0.2);
+          border-color: rgba(34, 197, 94, 0.5);
+        }
+        
+        .checkmark-icon {
+          animation: checkmarkPop 0.4s ease-out;
+        }
+          @keyframes checkmarkPop {
+          0% {
+            transform: scale(0);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.2);
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes pulseSubtle {
+          0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+          }
+          50% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+          }
+        }
+        
+        .pulse-animation {
+          animation: pulseSubtle 2s infinite;
+        }
+          /* Responsive Design */
+        @media (max-width: 768px) {
+          .context-bar {
+            padding: 0.5rem 1rem;
+          }
+          
+          .context-actions {
+            gap: 0.375rem;
+          }
+          
+          .context-btn {
+            padding: 0.375rem 0.625rem;
+            font-size: 0.75rem;
+          }
+          
+          .session-info {
+            font-size: 0.75rem;
+            gap: 0.5rem;
+          }
+          
+          .chat-input-area {
+            padding: 1rem;
+          }
+          
+          .input-container {
+            gap: 0.5rem;
+            padding: 0.625rem 0.875rem;
+          }
+          
+          .send-button {
+            width: 42px;
+            height: 42px;
+          }
+          
+          .chat-restored-banner {
+            margin: 0.75rem 1rem;
+            padding: 0.75rem;
+          }
+          
+          .restored-content {
+            font-size: 0.8rem;
+            gap: 0.5rem;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .context-bar {
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+          }
+          
+          .context-actions {
+            order: 2;
+            justify-content: center;
+            flex-wrap: wrap;
+          }
+          
+          .session-info {
+            order: 1;
+            justify-content: center;
+          }
+        }        
+        /* Enhanced focus states for accessibility */
+        .message-input:focus,
+        .send-button:focus,
+        .favorite-button:focus,
+        .context-btn:focus,
+        .start-fresh-btn:focus {
+          outline: 3px solid rgba(16, 185, 129, 0.4);
+          outline-offset: 2px;
+        }
+        
+        /* Improved contrast for better readability */
+        @media (prefers-contrast: high) {
+          .favorite-button {
+            border-width: 2px;
+          }
+          
+          .context-btn {
+            border-width: 2px;
+          }
+          
+          .send-button {
+            border: 2px solid currentColor;
+          }
+        }
+        
+        /* Reduced motion for users who prefer it */
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }
