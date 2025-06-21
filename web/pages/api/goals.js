@@ -86,8 +86,7 @@ export default async function handler(req, res) {
           .from('user_wellness_goals')
           .insert({
             user_id: user.id,
-            coach_wellness_goal_id: goalId
-          })
+            coach_wellness_goal_id: goalId          })
           .select(`
             *,
             coach_wellness_goals (*)
@@ -97,6 +96,21 @@ export default async function handler(req, res) {
         if (insertError) {
           console.error('Error adding goal to user:', insertError)
           return res.status(500).json({ error: 'Failed to add goal' })
+        }
+
+        // Initialize progress record for this goal
+        const { error: progressError } = await supabase
+          .from('progress')
+          .insert({
+            user_id: user.id,
+            goal_id: newUserGoal.coach_wellness_goals.goal_id,
+            progress_percent: 0,
+            last_updated: new Date().toISOString()
+          })
+
+        if (progressError) {
+          console.error('Error initializing progress:', progressError)
+          // Don't fail the entire operation, just log the error
         }
 
         return res.status(201).json({ 
@@ -142,8 +156,7 @@ export default async function handler(req, res) {
             user_id: user.id,
             coach_wellness_goal_id: newGoal.id
           })
-          .select(`
-            *,
+          .select(`            *,
             coach_wellness_goals (*)
           `)
           .single()
@@ -151,6 +164,21 @@ export default async function handler(req, res) {
         if (userGoalError) {
           console.error('Error adding custom goal to user:', userGoalError)
           return res.status(500).json({ error: 'Failed to add custom goal to user' })
+        }
+
+        // Initialize progress record for this custom goal
+        const { error: progressError } = await supabase
+          .from('progress')
+          .insert({
+            user_id: user.id,
+            goal_id: newGoal.goal_id,
+            progress_percent: 0,
+            last_updated: new Date().toISOString()
+          })
+
+        if (progressError) {
+          console.error('Error initializing progress for custom goal:', progressError)
+          // Don't fail the entire operation, just log the error
         }
 
         return res.status(201).json({

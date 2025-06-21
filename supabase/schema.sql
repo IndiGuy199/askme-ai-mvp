@@ -190,6 +190,9 @@ CREATE TABLE IF NOT EXISTS progress (
   notes TEXT
 );
 
+ALTER TABLE progress 
+ALTER COLUMN goal_id DROP NOT NULL;
+
 -- Store recommended actions for each user
 CREATE TABLE IF NOT EXISTS action_plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
