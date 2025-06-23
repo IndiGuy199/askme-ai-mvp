@@ -28,25 +28,32 @@ export default function BuyTokens() {
     }
     fetchUser()
   }, [router])
-
   const handleBuy = async (tokenCount, priceId) => {
     if (!userEmail) return alert('User not authenticated.')
     setLoading(true)
+    
+    console.log('🛒 Initiating purchase:', { tokenCount, priceId, email: userEmail })
+    
     try {
       const res = await fetch('/api/createCheckout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ priceId, email: userEmail, token_count: tokenCount })
       })
+      
       const data = await res.json()
+      console.log('💳 Checkout response:', data)
+      
       if (data?.url) {
+        console.log('✅ Redirecting to Stripe checkout:', data.url)
         window.location.href = data.url
       } else {
-        alert('Unable to start checkout session.')
+        console.error('❌ No checkout URL received:', data)
+        alert('Unable to start checkout session. Please try again.')
       }
     } catch (err) {
-      console.error(err)
-      alert('Error initiating purchase.')
+      console.error('❌ Purchase error:', err)
+      alert('Error initiating purchase. Please try again.')
     }
     setLoading(false)
   }
