@@ -62,31 +62,16 @@ export default async function handler(req, res) {
       if (userError) {
         console.error('Error fetching user:', userError)
         return res.status(404).json({ error: 'User not found' })
-      }
-
-      if (challengeId) {
+      }      if (challengeId) {
         // Adding an existing challenge to user
-        const { data: existingChallenge, error: checkError } = await supabase
-          .from('user_challenges')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('coach_challenge_id', challengeId)
-          .single()
-
-        if (checkError && checkError.code !== 'PGRST116') {
-          console.error('Error checking existing challenge:', checkError)
-          return res.status(500).json({ error: 'Failed to check existing challenge' })
-        }
-
-        if (existingChallenge) {
-          return res.status(400).json({ error: 'Challenge already exists for this user' })
-        }
-
+        // Note: UI prevents duplicates by greying out already selected challenges
+        
         const { data: newUserChallenge, error: insertError } = await supabase
           .from('user_challenges')
           .insert({
             user_id: user.id,
-            coach_challenge_id: challengeId          })
+            coach_challenge_id: challengeId
+          })
           .select(`
             *,
             coach_challenges (*)

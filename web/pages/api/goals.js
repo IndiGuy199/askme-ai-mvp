@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      const { email, goalId, goalData } = req.body
+      const { email, goalId, goalData, challengeId } = req.body
       
       if (!email) {
         return res.status(400).json({ error: 'Email is required' })
@@ -65,28 +65,80 @@ export default async function handler(req, res) {
       }
 
       if (goalId) {
-        // Adding an existing goal to user
-        const { data: existingGoal, error: checkError } = await supabase
+        // Adding an existing goal to user for a specific challenge
+        if (!challengeId) {
+          return res.status(400).json({ error: 'Challenge ID is required when adding goals' })
+        }        // Check if user already has this specific goal
+        const { data: existingUserGoals, error: checkError } = await supabase
           .from('user_wellness_goals')
-          .select('*')
+          .select(`
+            id,
+            coach_wellness_goals (
+              id,
+              goal_id,
+              challenge_id
+            )
+          `)
           .eq('user_id', user.id)
           .eq('coach_wellness_goal_id', goalId)
-          .single()
 
-        if (checkError && checkError.code !== 'PGRST116') {
+        if (checkError) {
           console.error('Error checking existing goal:', checkError)
           return res.status(500).json({ error: 'Failed to check existing goal' })
         }
 
-        if (existingGoal) {
-          return res.status(400).json({ error: 'Goal already exists for this user' })
+        // Check if the user already has this goal for this challenge
+        const hasGoalForChallenge = existingUserGoals?.some(userGoal => 
+          userGoal.coach_wellness_goals?.challenge_id === challengeId
+        )
+
+        if (hasGoalForChallenge) {
+          return res.status(400).json({ error: 'Goal already exists for this challenge' })
         }
 
+        // Also check if user already has this goal for any challenge (prevent duplicate goals entirely)
+        if (existingUserGoals && existingUserGoals.length > 0) {
+          return res.status(400).json({ error: 'You already have this goal' })
+        }// Get the goal details - allow goals without challenge_id (legacy goals)
+        const { data: goalDetails, error: goalDetailsError } = await supabase
+          .from('coach_wellness_goals')
+          .select('*')
+          .eq('id', goalId)
+          .single()
+
+        if (goalDetailsError) {
+          console.error('Error fetching goal details:', goalDetailsError)
+          return res.status(400).json({ error: 'Goal not found' })
+        }
+
+        // If the goal already has a challenge_id and it doesn't match, reject it
+        if (goalDetails.challenge_id && goalDetails.challenge_id !== challengeId) {
+          return res.status(400).json({ error: 'This goal belongs to a different challenge' })
+        }
+
+        // If the goal doesn't have a challenge_id, we'll link it to this challenge when adding to user
+        // This handles legacy goals that were created before the nested structure
+
+        // If the goal doesn't have a challenge_id, update it to link to this challenge
+        if (!goalDetails.challenge_id) {
+          const { error: updateError } = await supabase
+            .from('coach_wellness_goals')
+            .update({ challenge_id: challengeId })
+            .eq('id', goalId)
+
+          if (updateError) {
+            console.error('Error linking goal to challenge:', updateError)
+            // Continue anyway - this is not critical
+          }
+        }
+
+        // Add the goal to the user
         const { data: newUserGoal, error: insertError } = await supabase
           .from('user_wellness_goals')
           .insert({
             user_id: user.id,
-            coach_wellness_goal_id: goalId          })
+            coach_wellness_goal_id: goalId
+          })
           .select(`
             *,
             coach_wellness_goals (*)
@@ -103,7 +155,7 @@ export default async function handler(req, res) {
           .from('progress')
           .insert({
             user_id: user.id,
-            goal_id: newUserGoal.coach_wellness_goals.goal_id,
+            goal_id: goalDetails.goal_id,
             progress_percent: 0,
             last_updated: new Date().toISOString()
           })
@@ -121,10 +173,14 @@ export default async function handler(req, res) {
 
       if (goalData) {
         // Creating a custom goal
-        const { label, description, category = 'Custom' } = goalData
+        const { label, description, category = 'Custom', challengeId } = goalData
 
         if (!label) {
           return res.status(400).json({ error: 'Goal label is required' })
+        }
+
+        if (!challengeId) {
+          return res.status(400).json({ error: 'Challenge ID is required for new goals' })
         }
 
         // Generate a unique goal_id for custom goals
@@ -139,7 +195,8 @@ export default async function handler(req, res) {
             goal_id: uniqueGoalId,
             label,
             description: description || label,
-            created_by: 'user'
+            created_by: 'user',
+            challenge_id: challengeId
           })
           .select()
           .single()
@@ -156,7 +213,8 @@ export default async function handler(req, res) {
             user_id: user.id,
             coach_wellness_goal_id: newGoal.id
           })
-          .select(`            *,
+          .select(`
+            *,
             coach_wellness_goals (*)
           `)
           .single()

@@ -1,8 +1,18 @@
 /**
- * Algorithm to determine the best coach profile based on user's age, goals and challenges
+ * Algorithm to determine the best coach profile based on user's age and challenges
  * Age takes priority: Users over 45 automatically get "askme" coach
+ * 
+ * SIMPLIFIED APPROACH:
+ * - Age 45+ → "askme" coach (specialized for life transitions)
+ * - Mental health challenges → "mental_health" coach
+ * - Fitness challenges → "fitness" coach  
+ * - All other cases → "wellness" coach (general support)
  */
 
+/*
+ * OLD SCORING SYSTEM (preserved for reference if we want to expand algorithm later)
+ * This was designed when users could select both goals and challenges
+ */
 export const COACH_SCORING_WEIGHTS = {
   // AskMe Coach indicators (for users over 45)
   askme: {
@@ -83,13 +93,13 @@ export const COACH_SCORING_WEIGHTS = {
   }
 };
 
-/**
+/*
+ * OLD SCORING FUNCTION (preserved for reference)
  * Calculate coach scores based on selected goals and challenges
- * Now provides bonus points for multiple selections in the same category
  * @param {Array} selectedGoalIds - Array of goal_id strings from database
  * @param {Array} selectedChallengeIds - Array of challenge_id strings from database
  * @returns {Object} Scores for each coach type
- */
+ *
 export function calculateCoachScores(selectedGoalIds = [], selectedChallengeIds = []) {
   const scores = {
     askme: 0,
@@ -151,14 +161,15 @@ export function calculateCoachScores(selectedGoalIds = [], selectedChallengeIds 
 
   return scores;
 }
+*/
 
 /**
- * Determines the optimal coach based on user age, goals, and challenges
- * Priority: Age > Mental Health Challenges > Fitness Goals > Default Wellness
+ * Determines the optimal coach based on user age and challenges only
+ * Priority: Age > Mental Health Challenges > Fitness Challenges > Default Wellness
  */
-export function determineOptimalCoach(goalIds = [], challengeIds = [], age = null) {
+export function determineOptimalCoach(challengeIds = [], age = null) {
   try {
-    console.log('Coach Matcher Input:', { goalIds, challengeIds, age });
+    console.log('Coach Matcher Input:', { challengeIds, age });
 
     // AGE PRIORITY: Users over 45 get "askme" coach regardless of other selections
     if (age && age >= 45) {
@@ -167,7 +178,7 @@ export function determineOptimalCoach(goalIds = [], challengeIds = [], age = nul
     }
 
     // MENTAL HEALTH PRIORITY: If user has mental health challenges, assign mental health coach
-    const mentalHealthChallenges = ['anxiety', 'depression', 'grief', 'anger'];
+    const mentalHealthChallenges = ['anxiety', 'depression', 'grief', 'anger', 'trauma', 'self_esteem'];
     const hasMentalHealthChallenges = challengeIds.some(challenge => 
       mentalHealthChallenges.includes(challenge)
     );
@@ -177,16 +188,18 @@ export function determineOptimalCoach(goalIds = [], challengeIds = [], age = nul
       return 'mental_health';
     }
 
-    // FITNESS PRIORITY: If user has fitness goals, assign fitness coach
-    const fitnessGoals = ['build_muscle', 'lose_fat', 'improve_endurance', 'flexibility'];
-    const hasFitnessGoals = goalIds.some(goal => fitnessGoals.includes(goal));
+    // FITNESS PRIORITY: If user has fitness-related challenges, assign fitness coach
+    const fitnessChallenges = ['lack_motivation', 'injury_recovery', 'plateau', 'time_constraints'];
+    const hasFitnessChallenges = challengeIds.some(challenge => 
+      fitnessChallenges.includes(challenge)
+    );
 
-    if (hasFitnessGoals) {
-      console.log('Fitness goal detected, assigning fitness coach');
+    if (hasFitnessChallenges) {
+      console.log('Fitness challenge detected, assigning fitness coach');
       return 'fitness';
     }
 
-    // DEFAULT: General wellness coach for all other cases
+    // DEFAULT: General wellness coach for all other cases or no challenges selected
     console.log('No specific conditions met, assigning general wellness coach');
     return 'wellness';
 
@@ -199,19 +212,22 @@ export function determineOptimalCoach(goalIds = [], challengeIds = [], age = nul
 /**
  * Returns a human-readable explanation of why a coach was assigned
  */
-export function getCoachAssignmentReason(coachCode, goalIds = [], challengeIds = [], age = null) {
+export function getCoachAssignmentReason(coachCode, challengeIds = [], age = null) {
   try {
     switch (coachCode) {
       case 'askme':
-        return `Assigned AskMe AI Coach because user is ${age} years old (45+ get specialized guidance)`;
+        return `Assigned AskMe AI Coach because user is ${age} years old (45+ get specialized guidance for life transitions)`;
       case 'mental_health':
-        const mentalChallenges = challengeIds.filter(c => ['anxiety', 'depression', 'grief', 'anger'].includes(c));
+        const mentalChallenges = challengeIds.filter(c => ['anxiety', 'depression', 'grief', 'anger', 'trauma', 'self_esteem'].includes(c));
         return `Assigned Mental Health Coach due to challenges: ${mentalChallenges.join(', ')}`;
       case 'fitness':
-        const fitnessGoals = goalIds.filter(g => ['build_muscle', 'lose_fat', 'improve_endurance', 'flexibility'].includes(g));
-        return `Assigned Fitness Coach due to goals: ${fitnessGoals.join(', ')}`;
+        const fitnessChallenges = challengeIds.filter(c => ['lack_motivation', 'injury_recovery', 'plateau', 'time_constraints'].includes(c));
+        return `Assigned Fitness Coach due to challenges: ${fitnessChallenges.join(', ')}`;
       case 'wellness':
       default:
+        if (challengeIds.length > 0) {
+          return `Assigned General Wellness Coach for holistic support with: ${challengeIds.join(', ')}`;
+        }
         return 'Assigned General Wellness Coach for holistic health support';
     }
   } catch (error) {
