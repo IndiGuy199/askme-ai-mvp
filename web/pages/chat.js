@@ -159,8 +159,9 @@ export default function Chat() {  const [user, setUser] = useState(null)
         }
         
         .chat-wrapper {
-          max-width: 600px;
-          min-width: 340px;
+          width: 50vw;
+          min-width: 320px;
+          max-width: 900px;
           margin: 0 auto;
           background: white;
           min-height: 100vh;
@@ -173,12 +174,13 @@ export default function Chat() {  const [user, setUser] = useState(null)
         .chat-header {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
-          padding: 1rem 2rem;
+          padding: clamp(1rem, 2.5vw, 1.5rem) clamp(1.5rem, 4vw, 2rem);
           display: flex;
           align-items: center;
-          gap: 1.5rem;
+          gap: clamp(1rem, 2.5vw, 1.5rem);
           box-shadow: 0 2px 16px rgba(102, 126, 234, 0.15);
           position: relative;
+          flex-wrap: wrap;
         }
         
         .back-button {
@@ -205,7 +207,7 @@ export default function Chat() {  const [user, setUser] = useState(null)
         }
         
         .ai-title {
-          font-size: 1.5rem;
+          font-size: clamp(1.25rem, 3vw, 1.5rem);
           font-weight: 600;
           margin: 0;
           color: white;
@@ -213,7 +215,7 @@ export default function Chat() {  const [user, setUser] = useState(null)
         }
         
         .ai-subtitle {
-          font-size: 0.9rem;
+          font-size: clamp(0.8rem, 2vw, 0.9rem);
           margin: 0.25rem 0 0 0;
           color: rgba(255, 255, 255, 0.85);
           font-weight: 300;
@@ -225,10 +227,11 @@ export default function Chat() {  const [user, setUser] = useState(null)
           .token-display {
           background: rgba(255, 255, 255, 0.15);
           border-radius: 20px;
-          padding: 0.5rem 1rem;
+          padding: clamp(0.4rem, 1.5vw, 0.5rem) clamp(0.75rem, 2vw, 1rem);
           margin-bottom: 0.75rem;
           backdrop-filter: blur(10px);
           transition: all 0.3s ease;
+          display: inline-block;
         }
         
         .token-display.low-tokens {
@@ -243,13 +246,13 @@ export default function Chat() {  const [user, setUser] = useState(null)
         }
         
         .token-count {
-          font-size: 1.2rem;
+          font-size: clamp(1rem, 2.5vw, 1.2rem);
           font-weight: 600;
           color: white;
         }
         
         .token-label {
-          font-size: 0.8rem;
+          font-size: clamp(0.7rem, 1.5vw, 0.8rem);
           color: rgba(255, 255, 255, 0.8);
           margin-left: 0.25rem;
           font-weight: 300;
@@ -259,12 +262,13 @@ export default function Chat() {  const [user, setUser] = useState(null)
           background: rgba(255, 255, 255, 0.9);
           color: #667eea;
           text-decoration: none;
-          padding: 0.4rem 1rem;
+          padding: clamp(0.35rem, 1.5vw, 0.4rem) clamp(0.75rem, 2vw, 1rem);
           border-radius: 16px;
-          font-size: 0.85rem;
+          font-size: clamp(0.8rem, 2vw, 0.85rem);
           font-weight: 500;
           transition: all 0.2s ease;
           display: inline-block;
+          white-space: nowrap;
         }
         
         .buy-tokens-link:hover {
@@ -278,31 +282,35 @@ export default function Chat() {  const [user, setUser] = useState(null)
         .low-token-banner {
           background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
           border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-          padding: 1rem 2rem;
+          padding: clamp(0.75rem, 2vw, 1rem) clamp(1.5rem, 4vw, 2rem);
           animation: slideDown 0.3s ease-out;
         }
         
         .warning-content {
           display: flex;
           align-items: center;
-          gap: 1rem;
+          gap: clamp(0.75rem, 2vw, 1rem);
           color: #f59e0b;
           font-weight: 500;
+          flex-wrap: wrap;
         }
         
         .warning-text {
           flex: 1;
+          min-width: 200px;
+          font-size: clamp(0.8rem, 2vw, 0.9rem);
         }
         
         .setup-profile-btn, .buy-tokens-btn {
           background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
           color: white;
           text-decoration: none;
-          padding: 0.5rem 1rem;
+          padding: clamp(0.4rem, 1.5vw, 0.5rem) clamp(0.75rem, 2vw, 1rem);
           border-radius: 12px;
-          font-size: 0.875rem;
+          font-size: clamp(0.8rem, 2vw, 0.875rem);
           font-weight: 600;
           transition: all 0.2s ease;
+          white-space: nowrap;
         }
         
         .setup-profile-btn:hover, .buy-tokens-btn:hover {
@@ -327,29 +335,41 @@ export default function Chat() {  const [user, setUser] = useState(null)
           overflow: hidden;
         }        @media (max-width: 768px) {
           .chat-wrapper {
+            width: 95vw;
+            min-width: 320px;
             border-radius: 0;
-            min-width: 100%;
             box-shadow: none;
           }
           
           .chat-header {
             padding: 1rem 1.5rem;
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
           }
           
-          .ai-title {
-            font-size: 1.3rem;
+          .header-content {
+            order: 1;
           }
           
-          .ai-subtitle {
-            font-size: 0.85rem;
+          .back-button {
+            position: absolute;
+            left: 1.5rem;
+            top: 50%;
+            transform: translateY(-50%);
           }
           
           .token-info {
-            margin-top: 0.5rem;
+            order: 2;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
           }
           
           .token-display {
-            margin-bottom: 0.5rem;
+            margin-bottom: 0;
           }
           
           .low-token-banner {
@@ -363,7 +383,48 @@ export default function Chat() {  const [user, setUser] = useState(null)
           }
           
           .warning-text {
-            font-size: 0.875rem;
+            min-width: auto;
+          }
+        }
+        
+        @media (min-width: 769px) and (max-width: 1024px) {
+          .chat-wrapper {
+            width: 70vw;
+            max-width: 700px;
+          }
+        }
+        
+        @media (min-width: 1025px) {
+          .chat-wrapper {
+            width: 50vw;
+            max-width: 900px;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .chat-wrapper {
+            width: 100vw;
+            min-width: 100%;
+          }
+          
+          .chat-header {
+            padding: 0.75rem 1rem;
+          }
+          
+          .back-button {
+            left: 1rem;
+            width: 32px;
+            height: 32px;
+          }
+          
+          .token-info {
+            flex-direction: column;
+            gap: 0.5rem;
+          }
+          
+          .buy-tokens-link {
+            font-size: 0.8rem;
+            padding: 0.35rem 0.75rem;
           }
         }
       `}</style>
