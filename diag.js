@@ -58,7 +58,9 @@ function main() {
   }
 
   // 3. File count
-  console.log(`\n📦 Total files scanned: ${files.length}`);
+  console.log(`\n📦 T
+    
+    otal files scanned: ${files.length}`);
 }
 
 main();

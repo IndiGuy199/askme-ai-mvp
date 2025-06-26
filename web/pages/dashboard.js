@@ -420,24 +420,46 @@ Respond with just the action suggestion (1-2 sentences, max 100 characters).`
       const data = await response.json()
       
       if (response.ok && data.response) {
-        // Save the suggested action with status 'suggested'
-        const { error } = await supabase
-          .from('action_plans')
-          .insert({
-            user_id: userData.id,
-            goal_id: goalId,
-            action_text: data.response.trim(),
-            is_complete: false,
-            status: 'suggested', // Add status to distinguish from accepted actions
-            created_at: new Date().toISOString()
-          })
+        // Check if there's already a suggested action for this goal
+        const existingSuggestion = getSuggestedActionForGoal(goalId)
+        
+        if (existingSuggestion) {
+          // Update the existing suggestion with the new action
+          const { error } = await supabase
+            .from('action_plans')
+            .update({
+              action_text: data.response.trim(),
+              created_at: new Date().toISOString()
+            })
+            .eq('id', existingSuggestion.id)
 
-        if (!error) {
-          await fetchActionPlans(userData.id)
-          showToast('Action suggestion generated! 💡', 'success')
+          if (!error) {
+            await fetchActionPlans(userData.id)
+            showToast('New action suggestion generated! 💡', 'success')
+          } else {
+            console.error('Error updating suggested action:', error)
+            showToast('Failed to update action suggestion', 'error')
+          }
         } else {
-          console.error('Error saving suggested action:', error)
-          showToast('Failed to save action suggestion', 'error')
+          // Create a new suggested action
+          const { error } = await supabase
+            .from('action_plans')
+            .insert({
+              user_id: userData.id,
+              goal_id: goalId,
+              action_text: data.response.trim(),
+              is_complete: false,
+              status: 'suggested', // Add status to distinguish from accepted actions
+              created_at: new Date().toISOString()
+            })
+
+          if (!error) {
+            await fetchActionPlans(userData.id)
+            showToast('Action suggestion generated! 💡', 'success')
+          } else {
+            console.error('Error saving suggested action:', error)
+            showToast('Failed to save action suggestion', 'error')
+          }
         }
       } else {
         console.error('Failed to generate action suggestion:', data)
@@ -924,47 +946,66 @@ Make the goals:
   return (
     <Layout title="Dashboard">
       {/* Header Section */}
-      <div className="container" style={{ 
-        maxWidth: '600px', 
+      <div className="container-fluid" style={{ 
+        width: '50vw',
+        minWidth: '280px',
+        maxWidth: '900px',
+        margin: '0 auto',
         marginBottom: '0'
       }}>
         <div style={{ 
           background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
           borderRadius: '16px 16px 0 0',
-          padding: '2rem 1.5rem 2rem 1.5rem',
+          padding: 'clamp(1.5rem, 4vw, 2rem) clamp(1rem, 3vw, 1.5rem)',
           marginBottom: '0'
         }}>
-          <div className="d-flex justify-content-between align-items-center">
-            <h1 className="text-white mb-0 fw-bold" style={{ 
-              fontSize: '2.25rem',
-              lineHeight: '1.2',
-              letterSpacing: '-0.025em'
+          <div className="d-flex justify-content-between align-items-start flex-wrap">
+            <div className="d-flex align-items-center flex-wrap">
+              <h1 className="text-white mb-0 fw-bold me-3" style={{ 
+                fontSize: 'clamp(1.5rem, 3.5vw, 2rem)',
+                lineHeight: '1.2',
+                letterSpacing: '-0.025em'
+              }}>
+                👋 Your Wellness<br />Challenges
+              </h1>
+              <div className="d-flex align-items-center mt-2 mt-md-0">
+                <div 
+                  className="rounded-circle bg-white d-flex align-items-center justify-content-center me-2"
+                  style={{ 
+                    width: 'clamp(40px, 8vw, 50px)', 
+                    height: 'clamp(40px, 8vw, 50px)',
+                    fontSize: 'clamp(1.2rem, 3vw, 1.5rem)',
+                    color: '#6366f1',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {displayName?.charAt(0)?.toUpperCase() || '👤'}
+                </div>
+                <span className="text-white fw-medium" style={{ 
+                  fontSize: 'clamp(0.9rem, 2vw, 1rem)' 
+                }}>
+                  {displayName}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3">
+            <p className="text-white mb-0 opacity-75" style={{ 
+              fontSize: 'clamp(0.8rem, 1.8vw, 0.9rem)' 
             }}>
-              👋 Your Wellness<br />Challenges
-            </h1>
-            <button 
-              className="btn rounded-pill px-4 py-3"
-              onClick={() => setShowGoalModal(true)}
-              style={{ 
-                backgroundColor: 'white',
-                color: '#374151',
-                fontWeight: '600',
-                fontSize: '1rem',
-                border: 'none',
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              Add Challenge
-            </button>
+              Keep it up, you're <strong>making</strong> great progress!
+            </p>
           </div>
         </div>
       </div>
 
       {/* Main Content Container */}
-      <div className="container" style={{ 
-        maxWidth: '600px', 
-        padding: '0 24px',
+      <div className="container-fluid" style={{ 
+        width: '50vw',
+        minWidth: '320px',
+        maxWidth: '900px',
+        margin: '0 auto',
+        padding: '0 1rem',
         marginTop: '0'
       }}>
         
@@ -986,21 +1027,33 @@ Make the goals:
         <div className="card shadow-lg" style={{ borderRadius: '0', marginTop: '-1px', border: 'none' }}>
           <div className="card-body p-4" style={{ paddingTop: '2rem' }}>
             
-            <div className="d-flex align-items-center justify-content-between mb-4">
-              <h2 className="fw-bold mb-0">Your Goals</h2>
-              <span className="text-muted">Track your progress</span>
+            <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
+              <h2 className="fw-bold mb-0" style={{ fontSize: 'clamp(1.5rem, 3vw, 2rem)' }}>Your Challenges</h2>
+              <button 
+                className="btn btn-primary rounded-pill px-4 py-2"
+                onClick={() => setShowGoalModal(true)}
+                style={{ 
+                  fontSize: 'clamp(0.8rem, 1.8vw, 0.9rem)',
+                  fontWeight: '600',
+                  whiteSpace: 'nowrap',
+                  minWidth: 'fit-content'
+                }}
+              >
+                <i className="bi bi-plus me-1"></i>Add Challenge
+              </button>
             </div>
 
             {/* Challenges and Goals */}
             {challengesWithGoals.length === 0 ? (
               <div className="text-center py-5">
-                <div className="fs-1 mb-3">🚀</div>                <h4 className="text-muted mb-2">Ready to Start Your Wellness Journey?</h4>
+                <div className="fs-1 mb-3">🚀</div>
+                <h4 className="text-muted mb-2">Ready to Start Your Wellness Journey?</h4>
                 <p className="text-muted">Add your first challenge and start setting goals to track your progress!</p>
                 <button 
                   className="btn btn-primary rounded-pill px-4 py-3"
                   onClick={() => setShowGoalModal(true)}
                 >
-                  <i className="bi bi-shield-check me-2"></i>Create Your First Challenge
+                  <i className="bi bi-plus-circle me-2"></i>Create Your First Challenge
                 </button>
               </div>
             ) : (
@@ -1058,14 +1111,20 @@ Make the goals:
                                 const suggestedAction = getSuggestedActionForGoal(goalId)
                                 
                                 return (
-                                  <div key={userGoal.id} className="col-md-6">
-                                    <div className="card border rounded-3">
-                                      <div className="card-body p-3">
+                                  <div key={userGoal.id} className="col-12 col-sm-6 col-lg-4">
+                                    <div className="card border rounded-3 h-100">
+                                      <div className="card-body p-3 d-flex flex-column">
                                         <div className="d-flex justify-content-between align-items-start mb-2">
-                                          <h6 className="card-title mb-1">{userGoal.coach_wellness_goals.label}</h6>
+                                          <h6 className="card-title mb-1 flex-grow-1" style={{ 
+                                            fontSize: 'clamp(0.85rem, 1.2vw, 0.95rem)',
+                                            lineHeight: '1.3'
+                                          }}>
+                                            {userGoal.coach_wellness_goals.label}
+                                          </h6>
                                           <button 
-                                            className="btn btn-outline-primary btn-sm rounded-pill"
+                                            className="btn btn-outline-primary btn-sm rounded-pill ms-2"
                                             onClick={() => openProgressModal(userGoal, 'goal')}
+                                            style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}
                                           >
                                             <i className="bi bi-arrow-up me-1"></i>{goalProgress}%
                                           </button>
@@ -1087,23 +1146,43 @@ Make the goals:
                                           <div className="mt-3 p-2 bg-white border rounded-2 p-2">
                                             <div className="badge bg-info text-white mb-1">AI Suggested</div>
                                             <p className="small mb-2">{suggestedAction.action_text}</p>
-                                            <div className="d-flex gap-2">
+                                            <div className="d-flex gap-2 flex-wrap">
                                               <button 
                                                 className="btn btn-primary btn-sm rounded-pill"
                                                 onClick={() => acceptSuggestedAction(suggestedAction.id)}
+                                                disabled={suggestingGoal === goalId}
                                               >
                                                 <i className="bi bi-check me-1"></i>Accept
+                                              </button>
+                                              <button 
+                                                className="btn btn-outline-secondary btn-sm rounded-pill"
+                                                onClick={() => generateSuggestedAction(goalId, userGoal.coach_wellness_goals.label)}
+                                                disabled={suggestingGoal === goalId}
+                                              >
+                                                <i className="bi bi-arrow-clockwise me-1"></i>
+                                                <span className="d-none d-lg-inline">
+                                                  {suggestingGoal === goalId ? 'Generating...' : 'Generate Another'}
+                                                </span>
+                                                <span className="d-lg-none">
+                                                  {suggestingGoal === goalId ? '...' : 'New'}
+                                                </span>
                                               </button>
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="text-center">                                            <button 
-                                              className="btn btn-outline-primary btn-sm rounded-pill"
+                                          <div className="text-center mt-auto">
+                                            <button 
+                                              className="btn btn-outline-primary btn-sm rounded-pill w-100"
                                               onClick={() => generateSuggestedAction(goalId, userGoal.coach_wellness_goals.label)}
                                               disabled={suggestingGoal === goalId}
                                             >
                                               <i className="bi bi-lightbulb me-1"></i>
-                                              {suggestingGoal === goalId ? 'Thinking...' : 'Get Suggestion'}
+                                              <span className="d-none d-md-inline">
+                                                {suggestingGoal === goalId ? 'Thinking...' : 'Get Suggestion'}
+                                              </span>
+                                              <span className="d-md-none">
+                                                {suggestingGoal === goalId ? '...' : 'Suggest'}
+                                              </span>
                                             </button>
                                           </div>
                                         )}
@@ -1127,7 +1206,7 @@ Make the goals:
         {/* Today's Recommended Actions */}
         <div className="card shadow-lg rounded-3 mt-4">
           <div className="card-body p-4">
-            <h3 className="fw-bold mb-4">Today's Recommended Actions</h3>
+            <h3 className="fw-bold mb-4" style={{ fontSize: 'clamp(1.3rem, 2.5vw, 1.75rem)' }}>Today's Recommended Actions</h3>
             
             {getAcceptedActions().length === 0 ? (
               <div className="text-center py-4">
@@ -1142,45 +1221,53 @@ Make the goals:
                   You have {getAcceptedActions().length} action{getAcceptedActions().length !== 1 ? 's' : ''} to complete today.
                 </div>
                 
-                {getAcceptedActions().map((action, index) => (
-                  <div key={action.id} className="card border-0 bg-light rounded-3 mb-3">
-                    <div className="card-body p-3">
-                      <div className="d-flex justify-content-between align-items-start">
-                        <div className="flex-grow-1">
-                          <div className="badge bg-primary text-white mb-1">
-                            Day {index + 1} [AI Coach]:
+                <div className="row g-3">
+                  {getAcceptedActions().map((action, index) => (
+                    <div key={action.id} className="col-12 col-md-6 col-xl-4">
+                      <div className="card border-0 bg-light rounded-3 h-100">
+                        <div className="card-body p-3">
+                          <div className="d-flex justify-content-between align-items-start">
+                            <div className="flex-grow-1">
+                              <div className="badge bg-primary text-white mb-2" style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}>
+                                Day {index + 1} [AI Coach]:
+                              </div>
+                              <p className="mb-0" style={{ fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)' }}>"{action.action_text}"</p>
+                            </div>
+                            <div className="d-flex flex-column gap-2 ms-3">
+                              <button 
+                                className="btn btn-primary btn-sm rounded-pill"
+                                onClick={() => markActionDone(action.id, action.goal_id || action.challenge_id)}
+                                style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}
+                              >
+                                <i className="bi bi-check me-1"></i>
+                                <span className="d-none d-lg-inline">Mark as Done</span>
+                                <span className="d-lg-none">Done</span>
+                              </button>
+                              <button 
+                                className="btn btn-outline-danger btn-sm rounded-circle p-2"
+                                onClick={() => deleteAction(action.id)}
+                              >
+                                <i className="bi bi-trash" style={{ fontSize: 'clamp(0.6rem, 0.8vw, 0.7rem)' }}></i>
+                              </button>
+                            </div>
                           </div>
-                          <p className="mb-0">"{action.action_text}"</p>
-                        </div>
-                        <div className="d-flex gap-2 ms-3">
-                          <button 
-                            className="btn btn-primary rounded-pill px-4"
-                            onClick={() => markActionDone(action.id, action.goal_id || action.challenge_id)}
-                          >
-                            Mark as Done
-                          </button>
-                          <button 
-                            className="btn btn-outline-danger rounded-circle p-2"
-                            onClick={() => deleteAction(action.id)}
-                          >
-                            <i className="bi bi-trash" style={{ fontSize: '0.9rem' }}></i>
-                          </button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>        </div>
       </div>
-        {/* Fixed Chat Button - Blue Bar Style */}
+      {/* Fixed Chat Button - Blue Bar Style */}
       <div 
         className="position-fixed bottom-0 start-50 translate-middle-x p-3" 
         style={{ 
           zIndex: 1000, 
-          width: '100%',
-          maxWidth: '600px'
+          width: '50vw',
+          minWidth: '320px',
+          maxWidth: '900px'
         }}
       >
         <div 
@@ -1195,7 +1282,7 @@ Make the goals:
             className="btn btn-light w-100 rounded-pill py-2 text-decoration-none fw-bold mx-3"
             style={{ 
               color: '#007bff',
-              fontSize: '1.1rem',
+              fontSize: 'clamp(1rem, 2vw, 1.1rem)',
               border: 'none',
               width: 'calc(100% - 1.5rem)'
             }}
