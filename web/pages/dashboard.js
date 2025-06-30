@@ -960,33 +960,33 @@ Make the goals:
           marginBottom: '0'
         }}>
           <div className="d-flex justify-content-between align-items-start flex-wrap">
-            <div className="d-flex align-items-center flex-wrap">
-              <h1 className="text-white mb-0 fw-bold me-3" style={{ 
+            <div>
+              <h1 className="text-white mb-0 fw-bold" style={{ 
                 fontSize: 'clamp(1.5rem, 3.5vw, 2rem)',
                 lineHeight: '1.2',
                 letterSpacing: '-0.025em'
               }}>
                 👋 Your Wellness<br />Challenges
               </h1>
-              <div className="d-flex align-items-center mt-2 mt-md-0">
-                <div 
-                  className="rounded-circle bg-white d-flex align-items-center justify-content-center me-2"
-                  style={{ 
-                    width: 'clamp(40px, 8vw, 50px)', 
-                    height: 'clamp(40px, 8vw, 50px)',
-                    fontSize: 'clamp(1.2rem, 3vw, 1.5rem)',
-                    color: '#6366f1',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {displayName?.charAt(0)?.toUpperCase() || '👤'}
-                </div>
-                <span className="text-white fw-medium" style={{ 
-                  fontSize: 'clamp(0.9rem, 2vw, 1rem)' 
-                }}>
-                  {displayName}
-                </span>
+            </div>
+            <div className="d-flex align-items-center mt-2 mt-md-0">
+              <div 
+                className="rounded-circle bg-white d-flex align-items-center justify-content-center me-2"
+                style={{ 
+                  width: 'clamp(40px, 8vw, 50px)', 
+                  height: 'clamp(40px, 8vw, 50px)',
+                  fontSize: 'clamp(1.2rem, 3vw, 1.5rem)',
+                  color: '#6366f1',
+                  fontWeight: 'bold'
+                }}
+              >
+                {displayName?.charAt(0)?.toUpperCase() || '👤'}
               </div>
+              <span className="text-white fw-medium" style={{ 
+                fontSize: 'clamp(0.9rem, 2vw, 1rem)' 
+              }}>
+                {displayName}
+              </span>
             </div>
           </div>
           <div className="mt-3">

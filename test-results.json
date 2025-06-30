@@ -1,0 +1,345 @@
+{
+  "summary": {
+    "totalTests": 13,
+    "successfulTests": 13,
+    "testsWithPassedChecks": 10,
+    "successRate": 100,
+    "validationRate": 77,
+    "totalTimeMs": 159130,
+    "averageResponseTime": 11322
+  },
+  "testResults": [
+    {
+      "testName": "Initialization Test",
+      "message": "__INIT_CHAT__",
+      "success": true,
+      "responseTime": 7897,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 591,
+      "tokensRemaining": 0,
+      "responseLength": 544,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should include user name (Sarah)"
+        },
+        {
+          "passed": true,
+          "message": "Response should reference user challenges"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:01:26.060Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Stress Management Follow-up",
+      "message": "Hi! I'm feeling a bit overwhelmed today and could use some guidance.",
+      "success": true,
+      "responseTime": 8846,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 302,
+      "tokensRemaining": 0,
+      "responseLength": 330,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should acknowledge anxiety/overwhelm"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:01:35.922Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Comprehensive Mental Health Plan Request",
+      "message": "Can you help me create a comprehensive plan for managing my anxiety and depression? I want something...",
+      "success": true,
+      "responseTime": 12696,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 485,
+      "tokensRemaining": 0,
+      "responseLength": 1006,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should be comprehensive (>1000 chars)"
+        },
+        {
+          "passed": false,
+          "message": "Long response should trigger chunking or be very detailed"
+        },
+        {
+          "passed": true,
+          "message": "Response should cover anxiety and depression management"
+        }
+      ],
+      "allChecksPassed": false,
+      "timestamp": "2025-06-30T13:01:49.636Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Morning Routine Context Test",
+      "message": "That routine looks great! But I'm particularly struggling with the morning part you mentioned. What ...",
+      "success": true,
+      "responseTime": 11906,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 449,
+      "tokensRemaining": 0,
+      "responseLength": 872,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should reference morning routine context"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:02:02.554Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Emotional Eating Context Test",
+      "message": "Also, how does this help with my emotional eating issue specifically?",
+      "success": true,
+      "responseTime": 9974,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 436,
+      "tokensRemaining": 0,
+      "responseLength": 1030,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should address emotional eating"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:02:13.542Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Sleep Issue Introduction",
+      "message": "By the way, I've been having trouble sleeping lately. I know better sleep was one of my goals, but I...",
+      "success": true,
+      "responseTime": 13525,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 640,
+      "tokensRemaining": 0,
+      "responseLength": 985,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should address sleep and work stress"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:02:28.076Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Complex Sleep Cycle Query",
+      "message": "I've tried meditation apps and chamomile tea, but nothing seems to work. My mind just races about to...",
+      "success": true,
+      "responseTime": 22405,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 512,
+      "tokensRemaining": 0,
+      "responseLength": 996,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should be detailed for complex issue"
+        },
+        {
+          "passed": true,
+          "message": "Response should address the interconnected cycle"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:02:51.494Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Progress Update Test",
+      "message": "I wanted to update you on my progress. I've been following some of your advice for about a week now....",
+      "success": true,
+      "responseTime": 11644,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 481,
+      "tokensRemaining": 0,
+      "responseLength": 1002,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Response should be successful"
+        },
+        {
+          "passed": true,
+          "message": "Response should celebrate progress"
+        },
+        {
+          "passed": true,
+          "message": "Response should address ongoing sleep challenge"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:03:04.148Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Token Balance Check",
+      "message": "How many tokens do I have left?",
+      "success": true,
+      "responseTime": 9700,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 293,
+      "tokensRemaining": 0,
+      "responseLength": 319,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Token query should be successful"
+        },
+        {
+          "passed": false,
+          "message": "Should return token count"
+        }
+      ],
+      "allChecksPassed": false,
+      "timestamp": "2025-06-30T13:03:14.865Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Extreme Chunking Test",
+      "message": "I need an extremely comprehensive, detailed, and thorough wellness plan that covers every single asp...",
+      "success": true,
+      "responseTime": 10409,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 585,
+      "tokensRemaining": 0,
+      "responseLength": 868,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Very long request should be successful"
+        },
+        {
+          "passed": false,
+          "message": "Very long response should be chunked"
+        },
+        {
+          "message": "Should have multiple chunks"
+        },
+        {
+          "passed": false,
+          "message": "Combined response should be very long"
+        }
+      ],
+      "allChecksPassed": false,
+      "timestamp": "2025-06-30T13:03:26.284Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Short Message Test",
+      "message": "yes",
+      "success": true,
+      "responseTime": 12858,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 424,
+      "tokensRemaining": 0,
+      "responseLength": 945,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Short message should be handled"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:03:40.173Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Ambiguous Reference Test",
+      "message": "Can you explain that thing you mentioned before about the thing?",
+      "success": true,
+      "responseTime": 6714,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 276,
+      "tokensRemaining": 0,
+      "responseLength": 213,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Ambiguous message should be handled"
+        },
+        {
+          "passed": true,
+          "message": "Should ask for clarification"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:03:47.395Z",
+      "rawResponse": null
+    },
+    {
+      "testName": "Special Characters Test",
+      "message": "Can you help me with my goals? 😔 I'm struggling with emotional eating 📈",
+      "success": true,
+      "responseTime": 8616,
+      "chunked": false,
+      "chunkCount": 0,
+      "tokensUsed": 442,
+      "tokensRemaining": 0,
+      "responseLength": 988,
+      "checks": [
+        {
+          "passed": true,
+          "message": "Message with emojis should be handled"
+        }
+      ],
+      "allChecksPassed": true,
+      "timestamp": "2025-06-30T13:03:56.523Z",
+      "rawResponse": null
+    }
+  ],
+  "timestamp": "2025-06-30T13:03:56.524Z"
+}

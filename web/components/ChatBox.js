@@ -195,7 +195,14 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
           content: data.response || data.message,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           tokensUsed: data.tokensUsed || data.tokens || 1,
-          tokenBreakdown: data.tokenBreakdown
+          tokenBreakdown: data.tokenBreakdown,
+          // Add chunking support for initialization messages too
+          isPartial: data.isPartial || false,
+          totalChunks: data.totalChunks,
+          currentChunk: data.currentChunk || 1,
+          conversationId: data.conversationId,
+          nextChunkToken: data.nextChunkToken,
+          previewNext: data.previewNext
         }])
         
         if (onTokenUsed) {
@@ -243,6 +250,67 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
       setShowWarning(false)
     }
   }, [input, estimateTokens, onEstimateCost])
+  // Handle continuing chunked responses
+  const handleContinue = async (conversationId, currentChunk) => {
+    if (isLoading) return
+    
+    setIsLoading(true)
+    
+    try {
+      const res = await fetch('/api/chat-continue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId,
+          chunkNumber: currentChunk + 1,
+          email: userEmail
+        })
+      })
+
+      const data = await res.json()
+
+      if (res.ok && data.message) {
+        // Find the message to update and append the new chunk
+        setMessages(prev => prev.map(msg => {
+          if (msg.conversationId === conversationId) {
+            return {
+              ...msg,
+              content: msg.content + '\n\n' + data.message,
+              isPartial: data.isPartial,
+              currentChunk: data.currentChunk,
+              nextChunkToken: data.nextChunkToken,
+              previewNext: data.previewNext
+            }
+          }
+          return msg
+        }))
+        
+        console.log(`Loaded chunk ${data.currentChunk} of ${data.totalChunks}`)
+      } else {
+        console.error('Error continuing conversation:', data.error)
+        // Show error message
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Error loading more content: ${data.error}`,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          tokensUsed: 0,
+          error: true
+        }])
+      }
+    } catch (err) {
+      console.error('Error in handleContinue:', err)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error loading more content: ${err.message}`,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        tokensUsed: 0,
+        error: true
+      }])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
     
@@ -290,13 +358,38 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
           throw new Error(responseText || `Server error (${res.status})`)
         }
       }      if (res.ok && (data.response || data.message)) {
+        console.log('📦 CHATBOX DEBUG: Got response from API:', {
+          hasResponse: !!data.response,
+          isPartial: data.isPartial,
+          totalChunks: data.totalChunks,
+          currentChunk: data.currentChunk,
+          conversationId: data.conversationId,
+          nextChunkToken: data.nextChunkToken,
+          responseLength: (data.response || data.message || '').length
+        });
+        
         const assistantMessage = {
           role: 'assistant',
           content: data.response || data.message,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           tokensUsed: data.tokensUsed || data.tokens || 1,
-          tokenBreakdown: data.tokenBreakdown
+          tokenBreakdown: data.tokenBreakdown,
+          // Add chunking support
+          isPartial: data.isPartial || false,
+          totalChunks: data.totalChunks,
+          currentChunk: data.currentChunk || 1,
+          conversationId: data.conversationId,
+          nextChunkToken: data.nextChunkToken,
+          previewNext: data.previewNext
         }
+        
+        console.log('📦 CHATBOX DEBUG: Created assistant message:', {
+          isPartial: assistantMessage.isPartial,
+          totalChunks: assistantMessage.totalChunks,
+          currentChunk: assistantMessage.currentChunk,
+          conversationId: assistantMessage.conversationId,
+          contentLength: assistantMessage.content.length
+        });
         
         setMessages(prev => [...prev, assistantMessage])
         
@@ -493,7 +586,7 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
           {chatRestored && (
             <span className="session-status">
               <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                <path d="M8 16A8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
                 <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
               </svg>
               Restored
@@ -510,7 +603,7 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
             <div className="chat-restored-banner">
               <div className="restored-content">
                 <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                  <path d="M8 16A8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
                   <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
                 </svg>
                 <span>Chat session restored from your previous visit</span>
@@ -548,7 +641,38 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
                   <small className={styles.messageTime}>{msg.time}</small>
                   {msg.tokensUsed > 0 && (
                     <small className={styles.messageTokens}>{msg.tokensUsed} tokens</small>
-                  )}                  {msg.role === 'assistant' && !msg.error && (
+                  )}
+                  
+                  {/* Show Continue button for chunked responses */}
+                  {msg.isPartial && msg.conversationId && (
+                    <div className={styles.continueSection}>
+                      {msg.previewNext && (
+                        <div className={styles.previewText}>
+                          <strong>Coming up:</strong> {msg.previewNext}
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleContinue(msg.conversationId, msg.currentChunk)}
+                        disabled={isLoading}
+                        className={styles.continueButton}
+                      >
+                        {isLoading ? (
+                          <>
+                            <span>Loading...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>📖 Continue reading</span>
+                            <span style={{ opacity: 0.7, fontSize: '0.75rem', marginLeft: '0.5rem' }}>
+                              ({msg.currentChunk}/{msg.totalChunks})
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {msg.role === 'assistant' && !msg.error && (
                     <button
                       onClick={() => saveToFavorites(msg.content, idx)}
                       disabled={savingFavorite === idx}

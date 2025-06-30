@@ -16,6 +16,138 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 // Import error handler
 import { withErrorHandling } from '../../lib/apiErrorHandler'
 
+// Helper functions for response chunking
+function chunkResponse(text, maxChunkLength = 1500) {
+  if (!text || text.length <= maxChunkLength) {
+    return [text]
+  }
+
+  const chunks = []
+  let currentChunk = ''
+  
+  // First try to split by paragraphs (double newlines)
+  const paragraphs = text.split(/\n\s*\n/)
+  
+  for (const paragraph of paragraphs) {
+    // If paragraph itself is too long, split by sentences
+    if (paragraph.length > maxChunkLength) {
+      const sentences = paragraph.split(/(?<=[.!?])\s+/)
+      
+      for (const sentence of sentences) {
+        // Check if adding this sentence would exceed the limit
+        if (currentChunk.length + sentence.length + 2 <= maxChunkLength) {
+          currentChunk += (currentChunk ? '\n\n' : '') + sentence
+        } else {
+          // Save current chunk if it has content
+          if (currentChunk) {
+            chunks.push(currentChunk.trim())
+            currentChunk = sentence
+          } else {
+            // Handle very long sentences by splitting on word boundaries
+            const words = sentence.split(' ')
+            for (const word of words) {
+              if (currentChunk.length + word.length + 1 <= maxChunkLength) {
+                currentChunk += (currentChunk ? ' ' : '') + word
+              } else {
+                if (currentChunk) {
+                  chunks.push(currentChunk.trim())
+                  currentChunk = word
+                } else {
+                  // Very long word, force split
+                  chunks.push(word.slice(0, maxChunkLength))
+                  currentChunk = word.slice(maxChunkLength)
+                }
+              }
+            }
+          }
+        }
+      }
+    } else {
+      // Paragraph is reasonable size, check if we can add it to current chunk
+      if (currentChunk.length + paragraph.length + 2 <= maxChunkLength) {
+        currentChunk += (currentChunk ? '\n\n' : '') + paragraph
+      } else {
+        // Save current chunk and start new one with this paragraph
+        if (currentChunk) {
+          chunks.push(currentChunk.trim())
+        }
+        currentChunk = paragraph
+      }
+    }
+  }
+
+  // Add the final chunk
+  if (currentChunk) {
+    chunks.push(currentChunk.trim())
+  }
+
+  return chunks.filter(chunk => chunk.length > 0)
+}
+
+function getPreviewText(text, maxLength = 150) {
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  
+  const firstSentence = text.split(/[.!?]/)[0]
+  if (firstSentence.length <= maxLength) return firstSentence + '...'
+  
+  return text.substring(0, maxLength).trim() + '...'
+}
+
+function generateConversationId() {
+  return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+}
+
+async function storeChunkedResponse(user_id, chunks, conversationId) {
+  console.log(`� STORAGE START: Called with user_id=${user_id}, chunks=${chunks.length}, conversationId=${conversationId}`);
+  
+  try {
+    // Check if user_id is valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(user_id)) {
+      console.error(`� STORAGE ERROR: Invalid user_id format: ${user_id}`);
+      return false;
+    }
+    
+    console.log(`🚨 STORAGE: user_id is valid UUID`);
+    
+    const insertData = {
+      user_id,
+      conversation_id: conversationId,
+      chunks,
+      total_chunks: chunks.length,
+      current_chunk: 1
+    };
+    
+    console.log(`� STORAGE: About to insert data`);
+    
+    // Use service role client for admin access
+    const { createClient } = require('@supabase/supabase-js');
+    
+    const supabaseClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    );
+    
+    console.log(`� STORAGE: Supabase client created`);
+
+    const { data, error } = await supabaseClient
+      .from('chat_chunks')
+      .insert(insertData);
+
+    if (error) {
+      console.error('� STORAGE ERROR:', error);
+      return false;
+    }
+
+    console.log(`� STORAGE SUCCESS: Stored chunks`);
+    return true;
+  } catch (error) {
+    console.error('� STORAGE EXCEPTION:', error);
+    return false;
+  }
+}
+
 // Define the handler and then wrap it with error handling
 async function gptRouterHandler(req, res) {
   // Enhanced in-memory cache for responses with TTL
@@ -187,10 +319,10 @@ async function gptRouterHandler(req, res) {
       coach_profile: user?.coach_profiles,
       ...user
     };
-  }// Helper: Get last N chat messages for user (optimized for context window)
-  async function getLastNMessages(user_id, n = 4) { // Default reduced from 8 to 4
-    // Get recent messages only (3-6 range for better token efficiency)
-    const limit = Math.min(Math.max(n, 3), 6); // Reduced from 5-10 range
+  }// Helper: Get last N chat messages for user (improved for better context)
+  async function getLastNMessages(user_id, n = 8) { // Increased from 4 to 8
+    // Get recent messages (6-12 range for better context continuity)
+    const limit = Math.min(Math.max(n, 6), 12); // Increased from 3-6 range
     
     const { data: messages } = await supabase
       .from('chat_messages')
@@ -358,8 +490,10 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
     } catch (initError) {
       console.error('Initial setup error in memory summarization:', initError);
       // Continue despite error in logging setup
-    }      const limit = sessionEnd ? 15 : 10; // Reduced limits for better focus on recent conversation
-    console.log(`Fetching up to ${limit} recent messages for summary update`);
+    }
+    
+    const limit = sessionEnd ? 12 : 8; // OPTIMIZED: Further reduced limits for token efficiency
+    console.log(`Fetching up to ${limit} recent messages for summary update (OPTIMIZED)`);
     
     const { data: messages, error: msgError } = await supabase
       .from('chat_messages')
@@ -854,117 +988,99 @@ ${promptConfig.memory.updateSummary}`;
 
     let context_message = '';
     
-    try {      // Handle initialization messages with memory
-      if (is_init_message && memory_summary) {
-        context_message = `Context from previous conversations: ${memory_summary.substring(0, 300)}${memory_summary.length > 300 ? '...' : ''}`;
-        
-        // Override with current goals if they exist
-        if (hasGoals || hasChallenges) {
-          const currentGoalsContext = [];
-          if (hasGoals) {
-            const goalDetails = profile.goals.map(g => `${g.label} (${g.description})`).join(', ');
-            currentGoalsContext.push(`Current Goals: ${goalDetails}`);
-          }
-          if (hasChallenges) {
-            const challengeDetails = profile.challenges.map(c => `${c.label} (${c.description})`).join(', ');
-            currentGoalsContext.push(`Current Challenges: ${challengeDetails}`);
-          }
-          context_message += `\n\nIMPORTANT - ${currentGoalsContext.join(' | ')}`;
-        }
-        
-        if (firstName && !memory_summary.includes(firstName)) {
-          context_message += `\nUser's name: ${firstName}`;
-        }
+    // SIMPLIFIED context for non-init messages
+    if (!is_init_message && !is_first_message) {
+      // Only add minimal context - no assumptions
+      if (firstName && !context_message.includes(firstName)) {
+        context_message = `User's name: ${firstName}`;
       }
-      // Handle first messages with user context
-      else if (is_first_message && context) {
-        const key_parts = [];
-        if (firstName) key_parts.push(`Name: ${firstName}`);
-        
-        // Emphasize current structured goals
-        if (hasGoals) {
-          const goalDetails = profile.goals.map(g => `${g.label} (${g.description})`).join(', ');
-          key_parts.push(`ACTIVE WELLNESS GOALS: ${goalDetails}`);
-        }
-        
-        if (hasChallenges) {
-          const challengeDetails = profile.challenges.map(c => `${c.label} (${c.description})`).join(', ');
-          key_parts.push(`CURRENT CHALLENGES: ${challengeDetails}`);
-        }
-        
-        context_message = key_parts.join(' | ');
-      }      // Handle continuing conversations
-      else if (!is_first_message) {
-        if (memory_summary) {
-          context_message = `Previous context: ${memory_summary.substring(0, 200)}${memory_summary.length > 200 ? '...' : ''}`;
-          
-          // Add current goals/challenges if available
-          if (hasGoals || hasChallenges) {
-            const key_parts = [];
-            if (hasGoals) {
-              const goalLabels = profile.goals.map(g => g.label).join(', ');
-              key_parts.push(`Current Goals: ${goalLabels}`);
-            }
-            if (hasChallenges) {
-              const challengeLabels = profile.challenges.map(c => c.label).join(', ');
-              key_parts.push(`Current Challenges: ${challengeLabels}`);
-            }
-            context_message += `\n${key_parts.join(' | ')}`;
-          }
-        } else if (context) {
-          const key_parts = [];
-          if (hasGoals) key_parts.push(`Goals: ${profile.goals.map(g => g.label).join(', ')}`);
-          if (hasChallenges) key_parts.push(`Challenges: ${profile.challenges.map(c => c.label).join(', ')}`);
-          context_message = key_parts.join(' | ');
-        }
-      }      // Add context message to prompt
-      if (context_message.trim()) {
-        prompt.push({ role: "system", content: context_message.trim() });
-      }
-
-      // Special handling for goal-related queries
-      if (user_message && (user_message.toLowerCase().includes('goals') || user_message.toLowerCase().includes('goal'))) {
-        if (hasGoals) {
-          const goalDetails = profile.goals.map(g => `${g.label} - ${g.description}`).join('; ');
-          prompt.push({ 
-            role: "system", 
-            content: `When asked about goals, refer to these current selections: ${goalDetails}` 
-          });
-          console.log('Added goal-specific context for user query about goals');
-        }
-      }
-
-      // Add chat history
-      const safe_chat_history = Array.isArray(chat_history) ? chat_history : [];
-      let messagesAdded = 0;
-      const maxMessages = is_first_message ? 2 : (memory_summary ? 3 : 4);
       
-      for (const msg of safe_chat_history) {
-        if (!msg?.role || !msg?.content) continue;
-        
-        if (msg.content.length > 250) {
-          prompt.push({ role: msg.role, content: msg.content.substring(0, 150) + "... [truncated]" });
-        } else {
-          prompt.push({ role: msg.role, content: msg.content });
-        }
-        messagesAdded++;
-        if (messagesAdded >= maxMessages) break;
-      }
+      // DO NOT add memory summary or goals unless user specifically asks
+      // Let the conversation be truly user-led
+    }
+    
+    // Add context message to prompt
+    if (context_message.trim()) {
+      prompt.push({ role: "system", content: context_message.trim() });
+    }
 
-      // Add current user message
-      if (user_message) {
-        prompt.push({ role: "user", content: user_message });
+    // Enhanced handling for goal and challenge-related queries
+    const isGoalQuery = user_message && (
+      user_message.toLowerCase().includes('goal') ||
+      user_message.toLowerCase().includes('challenge') ||
+      user_message.toLowerCase().includes('current challenges') ||
+      user_message.toLowerCase().includes('my challenges') ||
+      user_message.toLowerCase().includes('what i want') ||
+      user_message.toLowerCase().includes('what im working on') ||
+      user_message.toLowerCase().includes('my profile') ||
+      user_message.toLowerCase().includes('we have talked about') ||
+      user_message.toLowerCase().includes('you know my')
+    );
+
+    if (isGoalQuery) {
+      let profileContext = '';
+      
+      // Add goals if available
+      if (hasGoals && profile.goals.length > 0) {
+        const goalDetails = profile.goals.map(g => `${g.label}${g.description ? ' - ' + g.description : ''}`).join('; ');
+        profileContext += `User's Current Goals: ${goalDetails}\n`;
       }
-    } catch (error) {
-      console.error('Error constructing prompt:', error);
-      return {
-        model: 'gpt-3.5-turbo',
-        prompt: [
-          { role: "system", content: promptConfig.system.short },
-          { role: "user", content: user_message || "Hello" }
-        ]
-      };
-    }    console.log('Final prompt and model:', {
+      
+      // Add challenges if available
+      if (profile.challenges && profile.challenges.length > 0) {
+        const challengeDetails = profile.challenges.map(c => `${c.label}${c.description ? ' - ' + c.description : ''}`).join('; ');
+        profileContext += `User's Current Challenges: ${challengeDetails}\n`;
+      }
+      
+      // Add legacy goals as backup
+      if (profile.simple_goals && (!hasGoals || profile.goals.length === 0)) {
+        profileContext += `Goals: ${profile.simple_goals}\n`;
+      }
+      
+      if (profileContext) {
+        prompt.push({ 
+          role: "system", 
+          content: `When asked about their profile, goals, or challenges, refer to this information:\n${profileContext}` 
+        });
+        console.log('Added profile context for user query about goals/challenges');
+      }
+    }
+
+    // Add chat history - ULTRA-OPTIMIZED: very aggressive limits for maximum token efficiency
+    const safe_chat_history = Array.isArray(chat_history) ? chat_history : [];
+    let messagesAdded = 0;
+    const maxMessages = is_first_message ? 1 : (memory_summary ? 2 : 3); // ULTRA-REDUCED from 4:6:8
+    
+    console.log('Chat history being added to prompt (ULTRA-OPTIMIZED):', {
+      historyLength: safe_chat_history.length,
+      maxMessages: maxMessages,
+      memoryExists: Boolean(memory_summary),
+      tokenSavings: 'Reduced from 8-10 to 1-3 messages'
+    });
+    
+    for (const msg of safe_chat_history) {
+      if (!msg?.role || !msg?.content) continue;
+      
+      // More aggressive truncation for maximum token efficiency
+      if (msg.content.length > 200) {
+        prompt.push({ role: msg.role, content: msg.content.substring(0, 150) + "... [truncated]" }); // ULTRA-REDUCED from 300 to 150
+      } else {
+        prompt.push({ role: msg.role, content: msg.content });
+      }
+      messagesAdded++;
+      if (messagesAdded >= maxMessages) break;
+    }
+    
+    console.log('Chat history added to prompt:', {
+      messagesAdded: messagesAdded,
+      totalPromptLength: prompt.length
+    });
+
+    // Add current user message
+    if (user_message) {
+      prompt.push({ role: "user", content: user_message });
+    }
+    console.log('Final prompt and model:', {
       modelSelected: model,
       promptLength: prompt.length,
       systemPromptPreview: prompt[0].content.substring(0, 100) + '...',
@@ -1186,8 +1302,10 @@ ${promptConfig.memory.updateSummary}`;
       let is_init_message = false;
       
       if (message === '__INIT_CHAT__') {
-        actualMessage = `Please greet me warmly by name and recall our previous conversations. My name is ${user.first_name || 'there'}. Reference any goals, challenges, or context from our past discussions.`;        is_init_message = true;
-        console.log('Converting __INIT_CHAT__ to personalized greeting request');
+        is_init_message = true;
+        // SIMPLIFIED: No context loading for initialization
+        actualMessage = "Hello! What would you like to talk about today?";
+        console.log('Simple initialization - no context loading');
       }
 
       // Ensure user has tokens (but be more lenient for greeting messages)
@@ -1220,13 +1338,13 @@ ${promptConfig.memory.updateSummary}`;
 
       console.log('Profile loaded with coach:', profile.coach_profile?.code);
 
-      // Get chat history
+      // Get chat history - OPTIMIZED: reduced limit for better token efficiency
       const { data: chat_history } = await supabase
         .from('chat_messages')
         .select('role, content')
         .eq('user_id', user_id)
         .order('created_at', { ascending: true })
-        .limit(10);
+        .limit(12); // REDUCED from 15 to 12
 
       let is_first_message = isFirstMessage || !chat_history || chat_history.length === 0;
       
@@ -1343,13 +1461,33 @@ ${promptConfig.memory.updateSummary}`;
       });
     }
 
-    // Call OpenAI
+    // Calculate message count for token optimization
+    const messageCount = chat_history?.length || 0;
+
+    // Call OpenAI with AGGRESSIVELY OPTIMIZED token limits
+    let maxTokens;
+    if (is_init_message) {
+      maxTokens = 150; // ULTRA-REDUCED: Init messages should be brief greetings
+    } else if (safeModel.includes('gpt-4')) {
+      // GPT-4 is more efficient, can say more with fewer tokens
+      maxTokens = messageCount <= 2 ? 400 : // First conversations need context
+                  messageCount <= 6 ? 300 : // Medium conversations
+                  200; // Established conversations
+    } else {
+      // GPT-3.5 needs slightly more tokens for same quality
+      maxTokens = messageCount <= 2 ? 500 : // First conversations need context
+                  messageCount <= 6 ? 350 : // Medium conversations
+                  250; // Established conversations
+    }
+    
+    console.log(`🎯 Using max_tokens: ${maxTokens} (messageCount: ${messageCount}, model: ${safeModel})`);
+    
     const completion = await openai.chat.completions.create({
       model: safeModel,
       messages: safePrompt,
-      max_tokens: safeModel.includes('gpt-4') ? 500 : 400, // Reduce token limit for gpt-3.5
+      max_tokens: maxTokens,
       temperature: 0.7,
-      presence_penalty: 0.3, // Slight penalty to avoid repetition
+      presence_penalty: 0.4, // Higher penalty to encourage conciseness
     });
     const aiReply = completion.choices[0]?.message?.content || '';
     
@@ -1364,19 +1502,84 @@ ${promptConfig.memory.updateSummary}`;
     await storeChatMessage(user_id, 'user', message, safeModel, inputTokens);
     await storeChatMessage(user_id, 'assistant', aiReply, safeModel, outputTokens);
     
-    // Prepare response object
-    const responseObj = {
-      response: aiReply,
-      tokensUsed: totalTokensUsed,
-      remainingTokens: newTokenBalance,
-      tokenBreakdown: {
-        input: inputTokens,
-        output: outputTokens,
-        total: totalTokensUsed
-      }
-    };
+    // Check if response needs to be chunked (for responses longer than 1500 characters)
+    const chunks = chunkResponse(aiReply, 1500);
+    const isChunked = chunks.length > 1;
     
-    // Cache the response    setCachedResponse(cacheKey, responseObj);    // Enhanced summarization logic with multiple trigger conditions
+    if (isChunked) {
+      console.log(`📦 CHUNKING: Response (${aiReply.length} chars) split into ${chunks.length} chunks`);
+      console.log(`📦 Chunk sizes: ${chunks.map(c => c.length).join(', ')}`);
+    }
+    
+    let responseObj;
+    
+    if (isChunked) {
+      // Generate conversation ID for chunked response
+      const conversationId = generateConversationId();
+      
+      console.log(`📦 CHUNKING DEBUG: About to store chunks - user_id: ${user_id}, conversationId: ${conversationId}`);
+      
+      // Store chunks in database
+      const chunkStored = await storeChunkedResponse(user_id, chunks, conversationId);
+      
+      console.log(`📦 CHUNKING DEBUG: Chunk storage result: ${chunkStored}`);
+      
+      if (chunkStored) {
+        // Return first chunk with chunking metadata
+        responseObj = {
+          response: chunks[0],
+          tokensUsed: totalTokensUsed,
+          remainingTokens: newTokenBalance,
+          tokenBreakdown: {
+            input: inputTokens,
+            output: outputTokens,
+            total: totalTokensUsed
+          },
+          isPartial: true,
+          totalChunks: chunks.length,
+          currentChunk: 1,
+          conversationId: conversationId,
+          nextChunkToken: `chunk_${conversationId}_2`,
+          previewNext: chunks.length > 1 ? getPreviewText(chunks[1]) : null
+        };
+        
+        console.log(`📦 RESPONSE DEBUG: Response chunked into ${chunks.length} parts, returning first chunk`);
+        console.log(`📦 RESPONSE DEBUG: Response object:`, {
+          ...responseObj,
+          response: responseObj.response.substring(0, 100) + '...'
+        });
+      } else {
+        // Fallback to full response if chunk storage failed
+        console.warn('Chunk storage failed, returning full response');
+        responseObj = {
+          response: aiReply,
+          tokensUsed: totalTokensUsed,
+          remainingTokens: newTokenBalance,
+          tokenBreakdown: {
+            input: inputTokens,
+            output: outputTokens,
+            total: totalTokensUsed
+          }
+        };
+      }
+    } else {
+      // Standard response for short messages
+      responseObj = {
+        response: aiReply,
+        tokensUsed: totalTokensUsed,
+        remainingTokens: newTokenBalance,
+        tokenBreakdown: {
+          input: inputTokens,
+          output: outputTokens,
+          total: totalTokensUsed
+        }
+      };
+    }
+    
+    // Cache the response (only cache non-chunked responses to avoid complexity)
+    if (!isChunked) {
+      setCachedResponse(cacheKey, responseObj);
+    }    // Enhanced summarization logic with multiple trigger conditions
     const totalMessages = chat_history.length + 2; // +2 for current user message and AI response
     
     // Helper: Check if message contains substantial content
@@ -1425,19 +1628,19 @@ ${promptConfig.memory.updateSummary}`;
       }
     }
     
-    // Multiple trigger conditions for comprehensive coverage
+    // OPTIMIZED: More frequent memory updates for better token efficiency
     const shouldUpdateMemory = 
-      totalMessages % 6 === 0 ||                           // Periodic: every 6 messages
+      totalMessages % 4 === 0 ||                           // REDUCED: Periodic every 4 messages (was 6)
       !profile.last_memory_summary ||                      // No existing memory
-      recentSubstantialCount % 4 === 0 ||                  // Quality-based: every 4 substantial messages
+      recentSubstantialCount % 3 === 0 ||                  // REDUCED: Quality-based every 3 substantial messages (was 4)
       timeTrigger ||                                       // Time-based: 24+ hours since last update
       breakthroughTrigger ||                               // Breakthrough moment detected
       topicShiftTrigger;                                   // Significant topic shift detected
     
     if (shouldUpdateMemory) {
       const triggerReason = !profile.last_memory_summary ? 'no_existing_memory' :
-                           totalMessages % 6 === 0 ? 'periodic_6_messages' :
-                           recentSubstantialCount % 4 === 0 ? 'quality_4_substantial' :
+                           totalMessages % 4 === 0 ? 'periodic_4_messages' :
+                           recentSubstantialCount % 3 === 0 ? 'quality_3_substantial' :
                            timeTrigger ? 'time_24_hours' :
                            breakthroughTrigger ? 'breakthrough_detected' : 
                            topicShiftTrigger ? 'topic_shift_detected' : 'unknown';
