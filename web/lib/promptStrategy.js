@@ -20,15 +20,15 @@ const getSystemPrompt = (messageCount, hasMemory, isNewTopic, coachPrompts) => {
   const medium = coachPrompts?.medium || promptConfig.system?.medium || '';
   const short = coachPrompts?.short || promptConfig.system?.short || '';
 
-  // Logic to determine which prompt to use
-  if (messageCount < 3 || isNewTopic || !hasMemory) {
-    console.log('Using FULL system prompt');
+  // UPDATED STRATEGY: Clear transition points for optimal coaching experience
+  if (messageCount <= 2 || isNewTopic || !hasMemory) {
+    console.log('Using FULL system prompt (messages 1-2: Sets tone, covers all conversational ground rules)');
     return full;
-  } else if (messageCount < 10) {
-    console.log('Using MEDIUM system prompt');
+  } else if (messageCount >= 3 && messageCount <= 6) {
+    console.log('Using MEDIUM system prompt (messages 3-6: Concise but context-aware and empathetic)');
     return medium;
   } else {
-    console.log('Using SHORT system prompt');
+    console.log('Using SHORT system prompt (messages 7+: Lean, responsive, invites user direction)');
     return short;
   }
 };

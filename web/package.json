@@ -6,7 +6,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node ../test-runner.js basic",
+    "test:full": "node ../test-runner.js full",
+    "test:chunking": "node ../test-runner.js chunking",
+    "test:memory": "node ../test-runner.js memory",
+    "test:tokens": "node ../test-runner.js tokens",
+    "test:edge": "node ../test-runner.js edge",
+    "test:verbose": "node ../test-runner.js basic --verbose",
+    "test:scenario": "node ../test-runner.js"
   },
   "repository": {
     "type": "git",

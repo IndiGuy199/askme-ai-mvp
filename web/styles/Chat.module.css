@@ -68,12 +68,18 @@
   backdrop-filter: blur(10px);
 }
 
+/* Increase AI response width to match user message width */
+.assistantBubble {
+  max-width: 85%;
+}
+
 .messageBubble:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
 }
 
 .userBubble {
+  max-width: 95%;
   background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   color: white;
   border-bottom-right-radius: 8px;
@@ -92,6 +98,7 @@
 }
 
 .assistantBubble {
+  max-width: 95%;
   background: rgba(255, 255, 255, 0.95);
   color: #374151;
   border: 1px solid rgba(229, 231, 235, 0.8);
@@ -262,6 +269,62 @@
 .assistantBubble .messageTokens {
   background: rgba(0, 0, 0, 0.05);
   color: #718096;
+}
+
+/* Continue button and preview styles */
+.continueSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  border-radius: 0.75rem;
+  position: relative;
+}
+
+.continueButton {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+}
+
+.continueButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.3);
+  background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+}
+
+.continueButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+}
+
+.previewText {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  font-style: italic;
+  color: #667eea;
+  padding: 0.5rem 0.75rem;
+  background: rgba(102, 126, 234, 0.08);
+  border-radius: 0.375rem;
+  border-left: 3px solid #667eea;
+  line-height: 1.4;
 }
 
 .loadingBubble {
