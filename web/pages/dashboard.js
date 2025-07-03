@@ -31,6 +31,9 @@ export default function Dashboard() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [aiSuggestedGoals, setAiSuggestedGoals] = useState([])
   const [updatingProgress, setUpdatingProgress] = useState(false)
+  const [actionCompletions, setActionCompletions] = useState([])
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [actionToDelete, setActionToDelete] = useState(null)
   const router = useRouter()
   // Toast notification function
   const showToast = (message, type = 'success') => {
@@ -120,7 +123,8 @@ export default function Dashboard() {
         setUserData(data)
         await Promise.all([
           fetchProgress(data.id),
-          fetchActionPlans(data.id)
+          fetchActionPlans(data.id),
+          fetchActionCompletions(data.id)
         ])
       } else {
         console.error('Failed to fetch user data:', data)
@@ -382,11 +386,35 @@ export default function Dashboard() {
         .select('*')
         .eq('user_id', userId)
         .eq('is_complete', false)
+        .eq('fully_complete', false) // Exclude fully completed actions
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      setActionPlans(data || [])    } catch (error) {
+      setActionPlans(data || [])
+    } catch (error) {
       console.error('Error fetching action plans:', error)
+    }
+  }
+
+  const fetchActionCompletions = async (userId) => {
+    try {
+      console.log('🔧 Fetching action completions for user:', userId)
+      const { data, error } = await supabase
+        .from('action_completions')
+        .select('*')
+        .eq('user_id', userId)
+
+      if (error) {
+        console.error('Error fetching action completions:', error)
+        throw error
+      }
+      
+      console.log('✅ Action completions fetched:', data?.length || 0, 'records')
+      setActionCompletions(data || [])
+    } catch (error) {
+      console.error('Error fetching action completions:', error)
+      // Don't show error toast for this as it's not critical
+      setActionCompletions([])
     }
   }
     const generateSuggestedAction = async (goalId, goalLabel) => {
@@ -492,63 +520,124 @@ Respond with just the action suggestion (1-2 sentences, max 100 characters).`
   }
   const markActionDone = async (actionId, goalId) => {
     try {
-      // Mark action as complete
-      const { error } = await supabase
-        .from('action_plans')
-        .update({ 
-          is_complete: true, 
-          completed_at: new Date().toISOString() 
-        })
-        .eq('id', actionId)
+      console.log('🔧 markActionDone called:', { actionId, goalId, userData: userData?.id })
+      
+      // Get the action details first
+      const action = actionPlans.find(a => a.id === actionId)
+      if (!action) {
+        console.error('Action not found:', actionId)
+        showToast('Action not found', 'error')
+        return
+      }
+      
+      // Create a completion entry for today
+      const completionData = {
+        action_id: actionId,
+        completed_at: new Date().toISOString(),
+        user_id: userData.id
+      }
+      
+      console.log('🔧 Inserting completion data:', completionData)
+      
+      // Insert completion record
+      const { data: insertedData, error: completionError } = await supabase
+        .from('action_completions')
+        .insert(completionData)
+        .select()
+      
+      if (completionError) {
+        console.error('Error recording completion:', completionError)
+        showToast(`Failed to record completion: ${completionError.message}`, 'error')
+        return
+      }
+      
+      console.log('✅ Completion recorded successfully:', insertedData)
 
-      if (!error) {
-        // Update progress if goal exists
-        if (goalId) {
-          const currentProgress = progress.find(p => p.goal_id === goalId)
-          const newProgressPercent = Math.min(100, (currentProgress?.progress_percent || 0) + 5)
-          
-          if (currentProgress) {
-            await supabase
-              .from('progress')
-              .update({ 
-                progress_percent: newProgressPercent,
-                last_updated: new Date().toISOString()
-              })
-              .eq('id', currentProgress.id)
-          } else {
-            await supabase
-              .from('progress')
-              .insert({
-                user_id: userData.id,
-                goal_id: goalId,
-                progress_percent: 5,
-                last_updated: new Date().toISOString()
-              })
-          }
-            // Check for achievements
-          if (newProgressPercent >= 25 && newProgressPercent < 30) {
-            setRecentAchievement({
-              title: "Great Progress!",
-              description: "You've made solid progress on your wellness goals!"
+      // Update progress if goal exists
+      if (goalId) {
+        const currentProgress = progress.find(p => p.goal_id === goalId)
+        const newProgressPercent = Math.min(100, (currentProgress?.progress_percent || 0) + 5)
+        
+        if (currentProgress) {
+          await supabase
+            .from('progress')
+            .update({ 
+              progress_percent: newProgressPercent,
+              last_updated: new Date().toISOString()
             })
-          } else if (newProgressPercent >= 50 && newProgressPercent < 55) {
-            setRecentAchievement({
-              title: "Halfway There!",
-              description: "You're 50% complete with this goal!"
+            .eq('id', currentProgress.id)
+        } else {
+          await supabase
+            .from('progress')
+            .insert({
+              user_id: userData.id,
+              goal_id: goalId,
+              progress_percent: 5,
+              last_updated: new Date().toISOString()
             })
-          }
-          
-          await fetchProgress(userData.id)
+        }
+          // Check for achievements
+        if (newProgressPercent >= 25 && newProgressPercent < 30) {
+          setRecentAchievement({
+            title: "Great Progress!",
+            description: "You've made solid progress on your wellness goals!"
+          })
+        } else if (newProgressPercent >= 50 && newProgressPercent < 55) {
+          setRecentAchievement({
+            title: "Halfway There!",
+            description: "You're 50% complete with this goal!"
+          })
         }
         
-        await fetchActionPlans(userData.id)
+        await fetchProgress(userData.id)
       }
+      
+      console.log('🔧 Refreshing action plans and completions...')
+      
+      // Refresh both action plans and completions
+      await Promise.all([
+        fetchActionPlans(userData.id),
+        fetchActionCompletions(userData.id)
+      ])
+      
+      showToast('Action completed for today! 🎉')
     } catch (error) {
       console.error('Error marking action done:', error)
+      showToast(`Failed to mark action as done: ${error.message}`, 'error')
     }
   }
   const deleteAction = async (actionId) => {
     try {
+      // Get the action details first
+      const action = actionPlans.find(a => a.id === actionId)
+      if (!action) {
+        showToast('Action not found', 'error')
+        return
+      }
+
+      // Get completion count for this action
+      const completionCount = getActionCompletionCount(actionId)
+
+      // Store deletion record with completion history
+      const deletionData = {
+        original_action_id: actionId,
+        user_id: userData.id,
+        action_text: action.action_text,
+        goal_id: action.goal_id,
+        challenge_id: action.challenge_id,
+        completion_count: completionCount,
+        deleted_at: new Date().toISOString()
+      }
+
+      const { error: deletionError } = await supabase
+        .from('action_deletions')
+        .insert(deletionData)
+
+      if (deletionError) {
+        console.error('Error storing deletion record:', deletionError)
+        // Continue with deletion even if we can't store the record
+      }
+
       // Delete the action from action_plans
       const { error } = await supabase
         .from('action_plans')
@@ -556,15 +645,72 @@ Respond with just the action suggestion (1-2 sentences, max 100 characters).`
         .eq('id', actionId)
 
       if (!error) {
-        await fetchActionPlans(userData.id)
-        showToast('Action deleted successfully! 🗑️')
+        // Also delete related completions
+        await supabase
+          .from('action_completions')
+          .delete()
+          .eq('action_id', actionId)
+
+        await Promise.all([
+          fetchActionPlans(userData.id),
+          fetchActionCompletions(userData.id)
+        ])
+        
+        showToast(`Action deleted! It was completed ${completionCount} time${completionCount !== 1 ? 's' : ''}. 🗑️`)
+        setShowDeleteModal(false)
+        setActionToDelete(null)
       } else {
         console.error('Error deleting action:', error)
         showToast('Failed to delete action', 'error')
       }
-    } catch (error) {      console.error('Error deleting action:', error)
+    } catch (error) {
+      console.error('Error deleting action:', error)
       showToast('Failed to delete action', 'error')
     }
+  }
+
+  const confirmDeleteAction = (actionId) => {
+    setActionToDelete(actionId)
+    setShowDeleteModal(true)
+  }
+
+  const markActionFullyComplete = async (actionId) => {
+    try {
+      // Mark action as fully complete (this will remove it from the UI)
+      await supabase
+        .from('action_plans')
+        .update({ 
+          is_complete: true,
+          fully_complete: true,
+          completed_at: new Date().toISOString() 
+        })
+        .eq('id', actionId)
+
+      // Refresh action plans to remove it from UI
+      await fetchActionPlans(userData.id)
+      
+      const completionCount = getActionCompletionCount(actionId)
+      showToast(`Action marked as fully complete! Completed ${completionCount} time${completionCount !== 1 ? 's' : ''} total. 🎯`)
+    } catch (error) {
+      console.error('Error marking action as fully complete:', error)
+      showToast('Failed to mark action as fully complete', 'error')
+    }
+  }
+
+  const getActionCompletionCount = (actionId) => {
+    const completions = actionCompletions.filter(completion => completion.action_id === actionId)
+    return completions.length
+  }
+
+  const getWeeklyCompletionCount = (actionId) => {
+    const oneWeekAgo = new Date()
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7)
+    
+    const weeklyCompletions = actionCompletions.filter(completion => 
+      completion.action_id === actionId && 
+      new Date(completion.completed_at) >= oneWeekAgo
+    )
+    return weeklyCompletions.length
   }
     const updateProgress = async (goalId, newPercent) => {
     try {
@@ -989,12 +1135,41 @@ Make the goals:
               </span>
             </div>
           </div>
-          <div className="mt-3">
+          {/* Progress message and Chat Button aligned */}
+          <div className="mt-3 d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3">
             <p className="text-white mb-0 opacity-75" style={{ 
-              fontSize: 'clamp(0.8rem, 1.8vw, 0.9rem)' 
+              fontSize: 'clamp(0.8rem, 1.8vw, 0.9rem)',
+              flex: '1'
             }}>
               Keep it up, you're <strong>making</strong> great progress!
             </p>
+            
+            {/* Chat Button aligned to the right */}
+            <div className="flex-shrink-0">
+              <a 
+                href="/chat" 
+                className="btn btn-light rounded-pill py-2 px-4 text-decoration-none fw-bold d-inline-flex align-items-center"
+                style={{ 
+                  color: '#6366f1',
+                  fontSize: 'clamp(0.8rem, 1.6vw, 0.9rem)',
+                  border: 'none',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'translateY(-1px)'
+                  e.target.style.boxShadow = '0 6px 20px rgba(0,0,0,0.15)'
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)'
+                  e.target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+                }}
+              >
+                <i className="bi bi-chat-dots me-2"></i>
+                💬 Chat with AI Coach
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -1024,7 +1199,7 @@ Make the goals:
         )}
 
         {/* Wellness Progress Section with Tabs */}
-        <div className="card shadow-lg" style={{ borderRadius: '0', marginTop: '-1px', border: 'none' }}>
+        <div className="card shadow-lg" style={{ borderRadius: '0', marginTop: '-1px', border: 'none', marginBottom: '2rem' }}>
           <div className="card-body p-4" style={{ paddingTop: '2rem' }}>
             
             <div className="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-3">
@@ -1061,10 +1236,10 @@ Make the goals:
                 const isExpanded = expandedChallenges.has(challengeWithGoals.coach_challenges.challenge_id)
                 
                 return (
-                  <div key={challengeWithGoals.id} className="card border-0 shadow-sm rounded-3 mb-4">
-                    <div className="card-body p-4">
-                      <div className="d-flex justify-content-between align-items-start mb-3">
-                        <div className="d-flex align-items-center mb-2">
+                  <div key={challengeWithGoals.id} className="card border-0 shadow-sm rounded-3 mb-3">
+                    <div className={`card-body ${isExpanded ? 'p-4' : 'py-3 px-4'}`}>
+                      <div className={`d-flex justify-content-between align-items-start ${isExpanded ? 'mb-3' : 'mb-0'}`}>
+                        <div className="d-flex align-items-center w-100">
                           <button 
                             className="btn btn-link p-0 me-3 text-decoration-none"
                             onClick={() => toggleChallengeExpansion(challengeWithGoals.coach_challenges.challenge_id)}
@@ -1072,12 +1247,29 @@ Make the goals:
                             <i className={`bi ${isExpanded ? 'bi-chevron-down' : 'bi-chevron-right'}`}></i>
                           </button>
                           <span className="me-2" style={{ color: '#dc3545', fontSize: '1rem' }}>💪</span>
-                          <div>
-                            <h5 className="mb-1 fw-bold">{challengeWithGoals.coach_challenges.label}</h5>
-                            <p className="text-muted mb-2" style={{ marginLeft: '3.5rem' }}>
-                              {challengeWithGoals.coach_challenges.description}
-                            </p>
-                          </div>                        </div>
+                          <div className="flex-grow-1">
+                            <h5 className={`fw-bold ${isExpanded ? 'mb-1' : 'mb-0'}`} style={{ 
+                              fontSize: 'clamp(1rem, 2vw, 1.1rem)',
+                              lineHeight: '1.3'
+                            }}>
+                              {challengeWithGoals.coach_challenges.label}
+                            </h5>
+                            {!isExpanded && (
+                              <p className="text-muted mb-0 small" style={{ 
+                                fontSize: 'clamp(0.75rem, 1.2vw, 0.85rem)',
+                                lineHeight: '1.2',
+                                marginLeft: '0'
+                              }}>
+                                {challengeWithGoals.coach_challenges.description}
+                              </p>
+                            )}
+                            {isExpanded && (
+                              <p className="text-muted mb-2" style={{ marginLeft: '3.5rem' }}>
+                                {challengeWithGoals.coach_challenges.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       
                       {/* Expandable Goals Section */}
@@ -1204,7 +1396,7 @@ Make the goals:
         </div>
         
         {/* Today's Recommended Actions */}
-        <div className="card shadow-lg rounded-3 mt-4">
+        <div className="card shadow-lg rounded-3 mt-4" style={{ marginBottom: '140px' }}>
           <div className="card-body p-4">
             <h3 className="fw-bold mb-4" style={{ fontSize: 'clamp(1.3rem, 2.5vw, 1.75rem)' }}>Today's Recommended Actions</h3>
             
@@ -1222,30 +1414,70 @@ Make the goals:
                 </div>
                 
                 <div className="row g-3">
-                  {getAcceptedActions().map((action, index) => (
-                    <div key={action.id} className="col-12 col-md-6 col-xl-4">
-                      <div className="card border-0 bg-light rounded-3 h-100">
-                        <div className="card-body p-3">
-                          <div className="d-flex justify-content-between align-items-start">
-                            <div className="flex-grow-1">
-                              <div className="badge bg-primary text-white mb-2" style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}>
-                                Day {index + 1} [AI Coach]:
+                  {getAcceptedActions().map((action, index) => {
+                    const completionCount = getActionCompletionCount(action.id)
+                    const weeklyCount = getWeeklyCompletionCount(action.id)
+                    const weeklyProgress = Math.min((weeklyCount / 7) * 100, 100)
+                    
+                    return (
+                      <div key={action.id} className="col-12 col-md-6 col-xl-4">
+                        <div className="card border-0 bg-light rounded-3 h-100">
+                          <div className="card-body p-3">
+                            <div className="d-flex justify-content-between align-items-start mb-2">
+                              <div className="flex-grow-1">
+                                <div className="d-flex align-items-center gap-2 mb-2">
+                                  <div className="badge bg-primary text-white" style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}>
+                                    Day {index + 1} [AI Coach]
+                                  </div>
+                                  {/* Completion Count Badge */}
+                                  <div className="badge bg-success text-white" style={{ fontSize: 'clamp(0.65rem, 0.9vw, 0.75rem)' }}>
+                                    ✓ {completionCount} time{completionCount !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                                <p className="mb-0" style={{ fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)' }}>"{action.action_text}"</p>
                               </div>
-                              <p className="mb-0" style={{ fontSize: 'clamp(0.8rem, 1.2vw, 0.9rem)' }}>"{action.action_text}"</p>
                             </div>
-                            <div className="d-flex flex-column gap-2 ms-3">
-                              <button 
-                                className="btn btn-primary btn-sm rounded-pill"
-                                onClick={() => markActionDone(action.id, action.goal_id || action.challenge_id)}
-                                style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}
-                              >
-                                <i className="bi bi-check me-1"></i>
-                                <span className="d-none d-lg-inline">Mark as Done</span>
-                                <span className="d-lg-none">Done</span>
-                              </button>
+                            
+                            {/* Progress Bar for Weekly Progress */}
+                            <div className="mb-3">
+                              <div className="d-flex justify-content-between align-items-center mb-1">
+                                <small className="text-muted">Weekly Progress</small>
+                                <small className="text-muted">{weeklyCount}/7 this week</small>
+                              </div>
+                              <div className="progress" style={{ height: '4px' }}>
+                                <div 
+                                  className="progress-bar bg-success" 
+                                  style={{ width: `${weeklyProgress}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                            
+                            <div className="d-flex justify-content-between align-items-center gap-2">
+                              <div className="d-flex gap-2">
+                                <button 
+                                  className="btn btn-primary btn-sm rounded-pill"
+                                  onClick={() => markActionDone(action.id, action.goal_id || action.challenge_id)}
+                                  style={{ fontSize: 'clamp(0.7rem, 1vw, 0.8rem)' }}
+                                >
+                                  <i className="bi bi-check me-1"></i>
+                                  <span className="d-none d-lg-inline">Done Today</span>
+                                  <span className="d-lg-none">Done</span>
+                                </button>
+                                <button 
+                                  className="btn btn-outline-success btn-sm rounded-pill"
+                                  onClick={() => markActionFullyComplete(action.id)}
+                                  style={{ fontSize: 'clamp(0.65rem, 0.9vw, 0.75rem)' }}
+                                  title="Mark as fully complete (won't repeat)"
+                                >
+                                  <i className="bi bi-check-all me-1"></i>
+                                  <span className="d-none d-lg-inline">Complete</span>
+                                  <span className="d-lg-none">All</span>
+                                </button>
+                              </div>
                               <button 
                                 className="btn btn-outline-danger btn-sm rounded-circle p-2"
-                                onClick={() => deleteAction(action.id)}
+                                onClick={() => confirmDeleteAction(action.id)}
+                                title="Delete this action"
                               >
                                 <i className="bi bi-trash" style={{ fontSize: 'clamp(0.6rem, 0.8vw, 0.7rem)' }}></i>
                               </button>
@@ -1253,44 +1485,12 @@ Make the goals:
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
           </div>        </div>
-      </div>
-      {/* Fixed Chat Button - Blue Bar Style */}
-      <div 
-        className="position-fixed bottom-0 start-50 translate-middle-x p-3" 
-        style={{ 
-          zIndex: 1000, 
-          width: '50vw',
-          minWidth: '320px',
-          maxWidth: '900px'
-        }}
-      >
-        <div 
-          className="w-100 rounded-pill py-3 shadow-lg"
-          style={{ 
-            background: 'linear-gradient(135deg, #007bff 0%, #0056b3 100%)',
-            border: '1px solid rgba(255,255,255,0.1)'
-          }}
-        >
-          <a 
-            href="/chat" 
-            className="btn btn-light w-100 rounded-pill py-2 text-decoration-none fw-bold mx-3"
-            style={{ 
-              color: '#007bff',
-              fontSize: 'clamp(1rem, 2vw, 1.1rem)',
-              border: 'none',
-              width: 'calc(100% - 1.5rem)'
-            }}
-          >
-            <i className="bi bi-chat-dots me-2"></i>
-            💬 Chat about my progress with your AI Coach
-          </a>
-        </div>
       </div>
       
       {/* Challenge Selection Modal */}      {showGoalModal && (
@@ -1462,6 +1662,55 @@ Make the goals:
         </div>
       )}
       
+      {/* Delete Action Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="modal show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  <i className="bi bi-exclamation-triangle text-warning me-2"></i>Confirm Delete
+                </h5>
+                <button 
+                  type="button" 
+                  className="btn-close" 
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    setActionToDelete(null)
+                  }}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <p className="mb-3">Are you sure you want to delete this action?</p>
+                <div className="alert alert-warning">
+                  <i className="bi bi-info-circle me-2"></i>
+                  <strong>This action cannot be undone.</strong> The action will be permanently removed from your action plan.
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button 
+                  type="button" 
+                  className="btn btn-secondary rounded-pill"
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    setActionToDelete(null)
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-danger rounded-pill"
+                  onClick={() => deleteAction(actionToDelete)}
+                >
+                  <i className="bi bi-trash me-1"></i>Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toast.message && (
         <div 
