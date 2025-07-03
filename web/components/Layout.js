@@ -47,35 +47,132 @@ export default function Layout({ children, title = 'AskMe AI', hideNavigation = 
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />      </Head>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+      </Head>
+      
       {!hideNavigation && (
-        <nav className="navbar navbar-expand navbar-light bg-white border-bottom mb-4" style={{ fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>          <div className="container">
-            <div className="navbar-nav me-auto">
-              <Link href="/dashboard" className="nav-link">Dashboard</Link>
-              <Link href="/chat" className="nav-link">Chat</Link>
-              <Link href="/favorites" className="nav-link">
-                <i className="bi bi-star me-1"></i>Favorites
-              </Link>
-              <Link href="/buy-tokens" className="nav-link">Buy Tokens</Link>
-            </div>            <div className="navbar-nav ms-auto">
-              <button 
-                onClick={handleLogout}
-                className="nav-link btn btn-link text-decoration-none p-0"
-                style={{ 
-                  border: 'none', 
-                  background: 'none',
-                  color: 'inherit',
-                  padding: '0.5rem 1rem'
-                }}
-              >
-                Logout
-              </button>
-            </div>
+        <div style={{
+          background: 'linear-gradient(135deg, #e8f2ff 0%, #f0e8ff 50%, #e8f2ff 100%)',
+          paddingTop: '2rem',
+          paddingBottom: '1rem'
+        }}>
+          <div className="container">
+            <nav className="navbar navbar-expand-lg" style={{ 
+              background: 'rgba(255, 255, 255, 0.95)', 
+              borderRadius: '20px', 
+              padding: '0.75rem 2rem', 
+              backdropFilter: 'blur(10px)', 
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)',
+              fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+            }}>
+              <div className="container-fluid">
+                <Link href="/dashboard" className="navbar-brand d-flex align-items-center text-decoration-none">
+                  <div style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: '12px'
+                  }}>
+                    <i className="bi bi-chat-dots-fill text-white" style={{ fontSize: '1.2rem' }}></i>
+                  </div>
+                  <span style={{ fontSize: '1.5rem', fontWeight: '700', color: '#2d3748' }}>AskMe AI</span>
+                </Link>
+                
+                {/* Mobile menu toggle */}
+                <button 
+                  className="navbar-toggler border-0" 
+                  type="button" 
+                  data-bs-toggle="collapse" 
+                  data-bs-target="#navbarNav"
+                  style={{ background: 'none', boxShadow: 'none' }}
+                >
+                  <i className="bi bi-list" style={{ fontSize: '1.5rem', color: '#2d3748' }}></i>
+                </button>
+                
+                <div className="collapse navbar-collapse" id="navbarNav">
+                  <ul className="navbar-nav ms-auto d-flex gap-1">
+                    <li className="nav-item">
+                      <Link href="/dashboard" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        Dashboard
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link href="/chat" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        Chat
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link href="/favorites" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        <i className="bi bi-star me-1"></i>Favorites
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link href="/buy-tokens" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        Buy Tokens
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link href="/faq" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        FAQ
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <Link href="/contact" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        Contact Us
+                      </Link>
+                    </li>
+                    <li className="nav-item">
+                      <button 
+                        onClick={handleLogout}
+                        className="nav-link px-3 py-2 rounded-pill border-0 text-decoration-none"
+                        style={{ 
+                          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                          color: 'white',
+                          fontWeight: '500',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => { e.target.style.transform = 'translateY(-1px)'; e.target.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.3)' }}
+                        onMouseLeave={(e) => { e.target.style.transform = 'translateY(0)'; e.target.style.boxShadow = 'none' }}
+                      >
+                        Logout
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </nav>
           </div>
-        </nav>
+        </div>
       )}
       
-      <main style={{ minHeight: '80vh', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}>
+      <main style={{ 
+        minHeight: '80vh', 
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        background: hideNavigation ? 'white' : 'linear-gradient(135deg, #e8f2ff 0%, #f0e8ff 50%, #e8f2ff 100%)',
+        paddingTop: hideNavigation ? '0' : '0'
+      }}>
         {children}
       </main>
     </>
