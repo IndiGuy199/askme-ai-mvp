@@ -1,12 +1,10 @@
 {
   "version": 2,
+  "name": "askme-ai-mvp",
   "builds": [
     {
-      "src": "web/package.json",
-      "use": "@vercel/next",
-      "config": {
-        "distDir": ".next"
-      }
+      "src": "web/next.config.js",
+      "use": "@vercel/next"
     }
   ],
   "routes": [
