@@ -1,9 +1,18 @@
 {
   "version": 2,
+  "builds": [
+    {
+      "src": "web/package.json",
+      "use": "@vercel/next",
+      "config": {
+        "distDir": ".next"
+      }
+    }
+  ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "web/pages/api/$1.js"
+      "src": "/(.*)",
+      "dest": "web/$1"
     }
   ]
 }
