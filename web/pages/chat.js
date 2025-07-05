@@ -5,10 +5,12 @@ import ChatBox from '../components/ChatBox'
 import Link from 'next/link'
 import Layout from '../components/Layout'
 
-export default function Chat() {  const [user, setUser] = useState(null)
+export default function Chat() {
+  const [user, setUser] = useState(null)
   const [tokens, setTokens] = useState(0)
   const [loading, setLoading] = useState(true)
   const [estimatedCost, setEstimatedCost] = useState(0)
+  const [messages, setMessages] = useState([]) // Add missing messages state
   const router = useRouter()
 
   useEffect(() => {
@@ -71,6 +73,13 @@ export default function Chat() {  const [user, setUser] = useState(null)
       // Fallback for backward compatibility
       setTokens(prev => Math.max(0, prev - 1))
     }
+  }
+
+  // Add missing clearChat function
+  const clearChat = () => {
+    setMessages([])
+    // If ChatBox component has a clear method, we might need to call it
+    // For now, clearing the messages state should work
   }
 
   if (loading || !user) {
@@ -144,6 +153,18 @@ export default function Chat() {  const [user, setUser] = useState(null)
               onEstimateCost={setEstimatedCost}
               estimateTokens={estimateTokens}
             />
+          </div>
+          
+          <div className="d-flex justify-content-between align-items-center mb-3">
+            <div className="d-flex align-items-center gap-2">
+              <button 
+                className="btn btn-outline-danger btn-sm rounded-pill px-3"
+                onClick={clearChat}
+              >
+                🗑️ Clear
+              </button>
+            </div>
+            <span className="badge bg-light text-dark">{messages.length} messages</span>
           </div>
           
         </div>

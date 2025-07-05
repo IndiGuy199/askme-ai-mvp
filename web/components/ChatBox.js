@@ -92,8 +92,12 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
         if (restoredMessages && restoredMessages.length > 0) {
           console.log('Restoring previous chat session with', restoredMessages.length, 'messages')
           setMessages(restoredMessages)
+          setChatRestored(true)
+          
+          // ✅ NEW: Send conversation history to establish context
+          await sendContextRestorationMessage(restoredMessages)
+          
           setChatInitialized(true)
-          setChatRestored(true) // Mark that chat was restored
           setIsLoading(false)
           clearTimeout(initTimeout)
           return
@@ -327,17 +331,42 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
     setIsLoading(true)
 
     try {
-      // Send ONLY the current message to avoid charging for conversation history
+      // Helper function to truncate long messages for history
+      const truncateMessage = (content, maxLength = 150) => {
+        if (content.length <= maxLength) return content
+        return content.substring(0, maxLength) + '...'
+      }
+
+      // Determine optimal history depth based on context
+      const getHistoryDepth = (messageCount, currentInputLength) => {
+        if (currentInputLength < 50) return 2  // Simple queries need less context
+        if (currentInputLength > 200) return 6 // Complex queries need more context
+        return Math.min(4, Math.max(2, Math.floor(messageCount / 3))) // Adaptive based on conversation length
+      }
+
+      // Get optimal number of previous messages to include
+      const historyDepth = getHistoryDepth(messages.length, currentInput.length)
+      
+      // Build limited conversation history
+      const conversationHistory = messages
+        .slice(-historyDepth)  // Take only recent messages
+        .filter(msg => !msg.error)  // Exclude error messages from history
+        .map(msg => ({
+          role: msg.role,
+          content: truncateMessage(msg.content, msg.role === 'user' ? 100 : 150) // Shorter truncation for user messages
+        }))
+        .concat([{  // Add current message
+          role: 'user',
+          content: currentInput
+        }])
+
+      console.log(`📝 Sending ${conversationHistory.length} messages in history (depth: ${historyDepth})`)
+
       const requestBody = {
         email: userEmail,
         message: currentInput,
-        // Don't send conversation history to avoid token charges
-        messages: [
-          {
-            role: 'user',
-            content: currentInput
-          }
-        ]
+        // Include optimized conversation history
+        messages: conversationHistory
       }
 
       const res = await fetch('/api/gptRouter', {
@@ -357,7 +386,9 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
         } else {
           throw new Error(responseText || `Server error (${res.status})`)
         }
-      }      if (res.ok && (data.response || data.message)) {
+      }
+
+      if (res.ok && (data.response || data.message)) {
         console.log('📦 CHATBOX DEBUG: Got response from API:', {
           hasResponse: !!data.response,
           isPartial: data.isPartial,
@@ -365,7 +396,9 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
           currentChunk: data.currentChunk,
           conversationId: data.conversationId,
           nextChunkToken: data.nextChunkToken,
-          responseLength: (data.response || data.message || '').length
+          responseLength: (data.response || data.message || '').length,
+          tokensUsed: data.tokensUsed || data.tokens || 1,
+          historySent: conversationHistory.length
         });
         
         const assistantMessage = {
