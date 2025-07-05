@@ -1,20 +1,21 @@
-import { createClient } from '@supabase/supabase-js'
-import OpenAI from 'openai'
-import { encoding_for_model } from 'tiktoken'
-import crypto from 'crypto'
+const { createClient } = require('@supabase/supabase-js')
+const OpenAI = require('openai')
+const { encoding_for_model } = require('tiktoken')
+const crypto = require('crypto')
 
 // Import prompt configuration
-import { promptConfig, loadCoachPrompts } from '../../lib/promptConfig'
-import * as promptStrategy from '../../lib/promptStrategy'
-import determineIfNewTopic from '../../lib/topicDetector'
-import { detectTopicShift } from '../../lib/topicShiftDetector'
-import { updateLastActivity, shouldTriggerSessionEndUpdate } from '../../lib/sessionTracker'
+const { promptConfig, loadCoachPrompts } = require('../../lib/promptConfig')
+const promptStrategy = require('../../lib/promptStrategy')
+const determineIfNewTopic = require('../../lib/topicDetector')
+const { detectTopicShift } = require('../../lib/topicShiftDetector')
+const { updateLastActivity, shouldTriggerSessionEndUpdate } = require('../../lib/sessionTracker')
+const { detectUserIntent } = require('../../lib/intentDetector')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE)
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 // Import error handler
-import { withErrorHandling } from '../../lib/apiErrorHandler'
+const { withErrorHandling } = require('../../lib/apiErrorHandler')
 
 // Helper functions for response chunking
 function chunkResponse(text, maxChunkLength = 1500) {
@@ -912,6 +913,20 @@ ${promptConfig.memory.updateSummary}`;
     // Calculate context size for model selection
     const contextSize = (memory_summary?.length || 0) + (context?.length || 0);
   
+    // 🎯 DETECT USER INTENT - with proper error handling
+    const userIntent = detectUserIntent(user_message, chat_history || [], null);
+    console.log(`🎯 Detected intent: ${userIntent} for message: "${user_message}"`);
+
+    // Update conversation state
+    let conversationState = null;
+    try {
+      const { updateConversationState } = require('../../lib/conversationState');
+      conversationState = updateConversationState(user_id, userIntent, user_message);
+      console.log(`🎯 Conversation state: ${conversationState.dominantIntent}, questions: ${conversationState.consecutiveQuestions}`);
+    } catch (err) {
+      console.error('Error updating conversation state:', err);
+    }
+
     // 2. Model selection - more token-efficient strategy
     let model = 'gpt-3.5-turbo';
     
@@ -923,11 +938,11 @@ ${promptConfig.memory.updateSummary}`;
       model = 'gpt-4-turbo';
     }
 
-    // 3. System prompt selection - prioritize coach-specific prompts
+    // 3. ENHANCED SYSTEM PROMPT SELECTION WITH INTENT MODIFICATION
     let system_prompt = '';
     
     try {
-      // Check if we have coach-specific prompts from the database
+      // Get base prompt using existing logic
       if (profile?.coach_profile?.system_prompt) {
         const coachPrompts = {
           full: profile.coach_profile.system_prompt,
@@ -935,26 +950,18 @@ ${promptConfig.memory.updateSummary}`;
           short: profile.coach_profile.short_prompt || profile.coach_profile.system_prompt
         };
 
-        console.log(`Using coach-specific prompts for ${profile.coach_profile.code || 'unknown'} coach`);
-
         if (is_init_message) {
-          // For initialization, use a personalized version of the coach prompt
-          system_prompt = coachPrompts.full + ` Remember, you are speaking with ${firstName}, and you should greet them warmly by name.`;
-          console.log('Using coach-specific initialization prompt with name:', firstName);
+          system_prompt = coachPrompts.full + ` Greet ${firstName} warmly by name.`;
         } else {
-          // Use prompt strategy to select appropriate coach prompt
           const messageCount = chat_history?.length || 0;
           const hasMemory = Boolean(memory_summary && memory_summary.length > 10);
           const isNewTopic = determineIfNewTopic(user_message, chat_history || []);
           system_prompt = promptStrategy.getSystemPrompt(messageCount, hasMemory, isNewTopic, coachPrompts);
-          console.log('Using coach-specific prompt selected by strategy');
         }
       } else {
-        console.log('No coach profile found, using default prompts');
-        
+        // Use default prompts
         if (is_init_message) {
           system_prompt = (promptConfig.system.init || '').replace(/\{\{firstName\}\}/g, firstName || 'user');
-          console.log('Using default initialization prompt with name:', firstName);
         } else {
           const messageCount = chat_history?.length || 0;
           const hasMemory = Boolean(memory_summary && memory_summary.length > 10);
@@ -962,6 +969,10 @@ ${promptConfig.memory.updateSummary}`;
           system_prompt = promptStrategy.getSystemPrompt(messageCount, hasMemory, isNewTopic, promptConfig.system);
         }
       }
+      
+      // 🎯 MODIFY PROMPT BASED ON INTENT (This is the key addition)
+      system_prompt = addIntentModifier(system_prompt, userIntent, conversationState);
+      
     } catch (error) {
       console.error('Error selecting prompt:', error);
       system_prompt = promptConfig.system.full;
@@ -1232,13 +1243,15 @@ ${promptConfig.memory.updateSummary}`;
   }  // Handle POST requests for chat
   if (req.method === 'POST') {
     try {
-      const { email, message, isFirstMessage } = req.body;
+      const { email, message, messages, isFirstMessage, isContextRestore } = req.body;
       if (!email || !message) return res.status(400).send('Missing email or message');
 
       console.log('=== CHAT REQUEST START ===');
       console.log('Email:', email);
       console.log('Message:', message);
       console.log('Is explicit first message:', isFirstMessage === true);
+      console.log('Is context restore:', isContextRestore === true);
+      console.log('Frontend conversation history length:', messages?.length || 0); // Log the frontend history
 
       // Get user with coach profile
       const { data: user, error: userError } = await supabase
@@ -1338,13 +1351,25 @@ ${promptConfig.memory.updateSummary}`;
 
       console.log('Profile loaded with coach:', profile.coach_profile?.code);
 
-      // Get chat history - OPTIMIZED: reduced limit for better token efficiency
-      const { data: chat_history } = await supabase
-        .from('chat_messages')
-        .select('role, content')
-        .eq('user_id', user_id)
-        .order('created_at', { ascending: true })
-        .limit(12); // REDUCED from 15 to 12
+      // Use frontend conversation history if provided, otherwise fall back to database
+      let chat_history;
+      if (messages && Array.isArray(messages) && messages.length > 0) {
+        // Use the optimized conversation history from frontend
+        chat_history = messages.slice(0, -1); // Remove the current message (last item)
+        console.log('Using frontend-provided conversation history:', chat_history.length, 'messages');
+        console.log('Frontend history preview:', chat_history.map(m => `${m.role}: ${m.content.substring(0, 50)}...`));
+      } else {
+        // Fallback to database history (legacy behavior)
+        console.log('No frontend history provided, fetching from database...');
+        const { data: dbHistory } = await supabase
+          .from('chat_messages')
+          .select('role, content')
+          .eq('user_id', user_id)
+          .order('created_at', { ascending: true })
+          .limit(12);
+        chat_history = dbHistory || [];
+        console.log('Using database conversation history:', chat_history.length, 'messages');
+      }
 
       let is_first_message = isFirstMessage || !chat_history || chat_history.length === 0;
       
@@ -1352,10 +1377,37 @@ ${promptConfig.memory.updateSummary}`;
         is_first_message,
         is_init_message,
         history_length: chat_history?.length || 0,
+        history_source: messages?.length > 0 ? 'frontend' : 'database',
         coach_profile: profile.coach_profile?.code
       });
 
-      // Get prompt and model with coach profile information
+      // Special handling for context restoration
+      if (message === "__RESTORE_CONTEXT__" && isContextRestore) {
+        console.log('Processing context restoration request...')
+        
+        // Validate the conversation history format
+        if (messages && Array.isArray(messages) && messages.length > 0) {
+          console.log(`Context restored with ${messages.length} messages`)
+          console.log('Context preview:', messages.map(m => `${m.role}: ${m.content.substring(0, 30)}...`))
+          
+          // Return acknowledgment without generating a response or using tokens
+          return res.status(200).json({
+            response: "Context restored successfully",
+            tokensUsed: 0,
+            contextRestored: true,
+            messagesRestored: messages.length,
+            message: "Session context has been restored"
+          })
+        } else {
+          console.warn('Invalid or empty conversation history for context restoration')
+          return res.status(400).json({
+            error: 'Invalid conversation history for context restoration',
+            contextRestored: false
+          })
+        }
+      }
+
+      // Get prompt and model with the conversation history (from frontend or database)
       const { model, prompt } = await getPromptAndModel(
         user_id,
         actualMessage,
@@ -1489,10 +1541,31 @@ ${promptConfig.memory.updateSummary}`;
       temperature: 0.7,
       presence_penalty: 0.4, // Higher penalty to encourage conciseness
     });
-    const aiReply = completion.choices[0]?.message?.content || '';
+    const aiResponse = completion.choices[0]?.message?.content || '';
+
+    // Analyze AI response to track actions
+    const detectAIAction = (response) => {
+      if (/\?.*\?|\bwhat\b.*\?|\bhow\b.*\?|\bwhen\b.*\?/.test(response)) {
+        return 'ASKED_QUESTION';
+      } else if (/\b(try|suggest|recommend|consider|here are|steps?|approach)\b/i.test(response)) {
+        return 'GAVE_ADVICE';
+      } else if (/\b(understand|hear|sounds?\s+(hard|difficult)|that must be)\b/i.test(response)) {
+        return 'VALIDATED_EMOTION';
+      }
+      return 'GENERAL_RESPONSE';
+    };
+
+    // Track the AI's action
+    const aiAction = detectAIAction(aiResponse);
+    try {
+      const { trackAIAction } = require('../../lib/conversationState');
+      trackAIAction(user_id, aiAction, aiResponse);
+    } catch (err) {
+      console.error('Error tracking AI action:', err);
+    }
     
     // Token counting (actual)
-    const outputTokens = encoder ? encoder.encode(aiReply).length : Math.ceil(aiReply.length / 4);
+    const outputTokens = encoder ? encoder.encode(aiResponse).length : Math.ceil(aiResponse.length / 4);
     const totalTokensUsed = inputTokens + outputTokens;
     if (encoder) encoder.free();
 
@@ -1500,14 +1573,14 @@ ${promptConfig.memory.updateSummary}`;
     const newTokenBalance = Math.max(0, user.tokens - totalTokensUsed);
     await supabase.from('users').update({ tokens: newTokenBalance }).eq('id', user.id);    // Store chat messages with metadata
     await storeChatMessage(user_id, 'user', message, safeModel, inputTokens);
-    await storeChatMessage(user_id, 'assistant', aiReply, safeModel, outputTokens);
+    await storeChatMessage(user_id, 'assistant', aiResponse, safeModel, outputTokens);
     
     // Check if response needs to be chunked (for responses longer than 1500 characters)
-    const chunks = chunkResponse(aiReply, 1500);
+    const chunks = chunkResponse(aiResponse, 1500);
     const isChunked = chunks.length > 1;
     
     if (isChunked) {
-      console.log(`📦 CHUNKING: Response (${aiReply.length} chars) split into ${chunks.length} chunks`);
+      console.log(`📦 CHUNKING: Response (${aiResponse.length} chars) split into ${chunks.length} chunks`);
       console.log(`📦 Chunk sizes: ${chunks.map(c => c.length).join(', ')}`);
     }
     
@@ -1552,7 +1625,7 @@ ${promptConfig.memory.updateSummary}`;
         // Fallback to full response if chunk storage failed
         console.warn('Chunk storage failed, returning full response');
         responseObj = {
-          response: aiReply,
+          response: aiResponse,
           tokensUsed: totalTokensUsed,
           remainingTokens: newTokenBalance,
           tokenBreakdown: {
@@ -1565,7 +1638,7 @@ ${promptConfig.memory.updateSummary}`;
     } else {
       // Standard response for short messages
       responseObj = {
-        response: aiReply,
+        response: aiResponse,
         tokensUsed: totalTokensUsed,
         remainingTokens: newTokenBalance,
         tokenBreakdown: {
@@ -1742,19 +1815,81 @@ ${promptConfig.memory.updateSummary}`;
     }
     
     return res.status(200).json(responseObj);
+    
     } catch (error) {
-      console.error('=== CHAT API ERROR ===');
-      console.error('Error details:', error);
-      console.error('Stack trace:', error.stack);
-      return res.status(500).json({
-        error: 'Internal server error',
-        message: error.message
-      });
+      console.error('Chat completion error:', error);
+      return res.status(500).json({ error: 'Failed to generate response' });
+    }
+  } // This closes the "if (req.method === 'POST')" block
+} // This closes the main gptRouterHandler function
+
+// 🎯 ENHANCED INTENT MODIFIER FUNCTION - Add this after getPromptAndModel
+function addIntentModifier(basePrompt, intent, conversationState = null) {
+  // Intent hierarchy - some override others
+  const hierarchicalIntents = {
+    'FRUSTRATED': 10,               // Highest priority
+    'META_CONVERSATION': 9,
+    'ADVICE_REQUEST': 8,
+    'FOLLOW_UP_ADVICE': 7,
+    'EMOTIONAL_SHARING': 6,
+    'ADVICE_FOCUSED': 5,
+    'GENERAL_CONVERSATION': 1
+  };
+  
+  // Check for meta-conversation needs first
+  if (conversationState?.userFrustrationSignals >= 2) {
+    return basePrompt + '\n\nCRITICAL: User is highly frustrated. Stop current approach. Acknowledge the frustration and offer: "I can tell this isn\'t helpful. What would work better for you - specific advice, just listening, or a completely different approach?"';
+  }
+  
+  // Check for repetitive patterns
+  if (conversationState?.consecutiveQuestions >= 3) {
+    return basePrompt + '\n\nIMPORTANT: You\'ve asked multiple questions in a row. User may be tired of questions. Provide concrete guidance instead.';
+  }
+  
+  // Check for advice repetition
+  const recentAdvice = conversationState?.aiActionHistory
+    ?.filter(a => a.action === 'GAVE_ADVICE')
+    ?.slice(-2);
+  
+  if (recentAdvice?.length >= 2 && intent === 'ADVICE_REQUEST') {
+    return basePrompt + '\n\nIMPORTANT: You\'ve given advice recently. Check if user wants you to elaborate on previous suggestions or if they need something different.';
+  }
+  
+  const intentModifiers = {
+    'FRUSTRATED': '\n\nCRITICAL: User is frustrated. Immediately acknowledge: "I hear that you\'re frustrated with my approach." Ask what would be most helpful. Stop asking questions.',
+    
+    'META_CONVERSATION': '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Offer clear alternatives.',
+    
+    'ADVICE_REQUEST': conversationState?.dominantIntent === 'ADVICE_FOCUSED' 
+      ? '\n\nIMPORTANT: User is clearly solution-focused. Continue providing practical advice. Minimize exploratory questions.'
+      : '\n\nIMPORTANT: User explicitly wants advice. Provide 2-3 specific, actionable suggestions. Ask if they want to focus on one.',
+    
+    'FOLLOW_UP_ADVICE': '\n\nIMPORTANT: User wants additional or alternative advice. Don\'t repeat previous suggestions. Provide new angles or deeper detail on implementation.',
+    
+    'EMOTIONAL_SHARING': conversationState?.dominantIntent === 'EMOTIONAL_FOCUSED'
+      ? '\n\nIMPORTANT: User is in emotional sharing mode. Continue with validation and gentle exploration. Don\'t rush to solutions.'
+      : '\n\nIMPORTANT: User is sharing emotions. Validate feelings first. Ask one gentle follow-up question max.',
+    
+    'ADVICE_FOCUSED': '\n\nIMPORTANT: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.',
+    
+    'GENERAL_CONVERSATION': '\n\nBalance listening with solutions. Ask 1 clarifying question, then offer exploration or advice options.'
+  };
+  
+  const modifier = intentModifiers[intent] || '';
+  
+  // Add session-level context
+  if (conversationState) {
+    const sessionMinutes = (Date.now() - conversationState.sessionStartTime) / 60000;
+    if (sessionMinutes > 30 && conversationState.userFrustrationSignals === 0) {
+      // Long successful session
+      return basePrompt + modifier + '\n\nNOTE: This has been a good long conversation. Check if user wants to wrap up or continue.';
     }
   }
-  // Method not allowed
-  return res.status(405).send('Method not allowed')
+  
+  console.log(`🎯 Applying enhanced intent modifier for ${intent}${conversationState ? ' with state context' : ''}`);
+  return basePrompt + modifier;
 }
 
-// Export the handler with error handling wrapper
-export default withErrorHandling(gptRouterHandler);
+// Export with error handling - Next.js requires default export
+module.exports = withErrorHandling(gptRouterHandler);
+module.exports.default = withErrorHandling(gptRouterHandler);
