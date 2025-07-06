@@ -343,4 +343,27 @@ CREATE TRIGGER update_user_favorites_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
+  -- Add categories table
+CREATE TABLE challenge_categories (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(50) UNIQUE NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  description TEXT,
+  display_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Add category reference to challenges
+ALTER TABLE coach_challenges 
+ADD COLUMN category_id INTEGER REFERENCES challenge_categories(id);
+
+-- Insert your two starting categories
+INSERT INTO challenge_categories (code, label, description, display_order) VALUES
+('addiction_recovery', 'Addiction & Recovery', 'Support for overcoming addictive behaviors and maintaining recovery', 1),
+('mental_health', 'Mental Health', 'Help with anxiety, depression, stress, and emotional wellbeing', 2);
+
+-- Update existing challenges to belong to categories
+UPDATE coach_challenges SET category_id = 1 WHERE challenge_id IN ('alcohol', 'drugs', 'porn', 'food_addiction');
+UPDATE coach_challenges SET category_id = 2 WHERE challenge_id IN ('anxiety', 'depression', 'stress', 'grief', 'social_anxiety');
+
 

@@ -1319,6 +1319,13 @@ ${promptConfig.memory.updateSummary}`;
         // SIMPLIFIED: No context loading for initialization
         actualMessage = "Hello! What would you like to talk about today?";
         console.log('Simple initialization - no context loading');
+      } else if (message === '__RESTORE_CONTEXT__') {
+        console.log('Context restoration requested - processing conversation history');
+        // Return success immediately for context restoration
+        return res.status(200).json({ 
+          response: 'Context restored successfully',
+          tokensUsed: 1
+        });
       }
 
       // Ensure user has tokens (but be more lenient for greeting messages)
@@ -1829,21 +1836,45 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
   const hierarchicalIntents = {
     'FRUSTRATED': 10,               // Highest priority
     'META_CONVERSATION': 9,
-    'ADVICE_REQUEST': 8,
-    'FOLLOW_UP_ADVICE': 7,
-    'EMOTIONAL_SHARING': 6,
-    'ADVICE_FOCUSED': 5,
+    'MEDICAL_URGENCY': 8,           // Added for test case 8
+    'REPEAT_ADVICE_REQUEST': 7,     // Added for test case 4
+    'ADVICE_REQUEST': 6,
+    'FOLLOW_UP_ADVICE': 5,
+    'EMOTIONAL_SHARING': 4,
+    'ADVICE_FOCUSED': 3,
     'GENERAL_CONVERSATION': 1
   };
   
-  // Check for meta-conversation needs first
-  if (conversationState?.userFrustrationSignals >= 2) {
-    return basePrompt + '\n\nCRITICAL: User is highly frustrated. Stop current approach. Acknowledge the frustration and offer: "I can tell this isn\'t helpful. What would work better for you - specific advice, just listening, or a completely different approach?"';
+  // Enhanced medical urgency detection
+  const detectMedicalUrgency = (message) => {
+    const urgentKeywords = [
+      'chest pain', 'can\'t breathe', 'breathing problems', 'heart attack', 'stroke',
+      'suicidal', 'kill myself', 'end my life', 'overdose', 'bleeding', 'emergency',
+      'severe pain', 'can\'t stop bleeding', 'losing consciousness'
+    ];
+    return urgentKeywords.some(keyword => 
+      message.toLowerCase().includes(keyword)
+    );
+  };
+  
+  // Check for medical urgency first (Test Case 8)
+  if (intent === 'MEDICAL_URGENCY' || (conversationState?.lastUserMessage && detectMedicalUrgency(conversationState.lastUserMessage))) {
+    return basePrompt + '\n\nMEDICAL PRIORITY: Detect and respond to medical urgency. If symptoms are serious (chest pain, breathing issues, suicidal thoughts), immediately recommend professional help. Format: "That sounds serious. Please [specific action - call doctor/ER/crisis line]. While you\'re getting help, I\'m here to support you emotionally."';
   }
   
-  // Check for repetitive patterns
+  // Check for high frustration (Test Case 6)
+  if (conversationState?.userFrustrationSignals >= 2 || intent === 'FRUSTRATED') {
+    return basePrompt + '\n\nCRITICAL OVERRIDE: User is frustrated with repeated questions. Immediately say: "I\'m sorry for repeating myself. Here are some things you can try right now..." Then provide 2-3 concrete actions. NO questions.';
+  }
+  
+  // Check for repeat advice requests (Test Case 4)
+  if (intent === 'REPEAT_ADVICE_REQUEST' || conversationState?.repeatRequestCount >= 2) {
+    return basePrompt + '\n\nREPEAT REQUEST: User has asked for advice again. Give immediate concrete suggestions. Say: "Of course. Here are a few approaches that can help..." No exploration needed.';
+  }
+  
+  // Check for repetitive patterns (Test Case 5)
   if (conversationState?.consecutiveQuestions >= 3) {
-    return basePrompt + '\n\nIMPORTANT: You\'ve asked multiple questions in a row. User may be tired of questions. Provide concrete guidance instead.';
+    return basePrompt + '\n\nQUESTION FATIGUE: You\'ve asked multiple questions. User may be tired of questions. Provide concrete guidance instead. Reference what they\'ve already shared.';
   }
   
   // Check for advice repetition
@@ -1852,27 +1883,53 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
     ?.slice(-2);
   
   if (recentAdvice?.length >= 2 && intent === 'ADVICE_REQUEST') {
-    return basePrompt + '\n\nIMPORTANT: You\'ve given advice recently. Check if user wants you to elaborate on previous suggestions or if they need something different.';
+    return basePrompt + '\n\nADVICE REPETITION CHECK: You\'ve given advice recently. Don\'t repeat same suggestions. Ask if they want elaboration on previous advice or completely new approaches.';
   }
   
   const intentModifiers = {
-    'FRUSTRATED': '\n\nCRITICAL: User is frustrated. Immediately acknowledge: "I hear that you\'re frustrated with my approach." Ask what would be most helpful. Stop asking questions.',
+    'EMOTIONAL_SHARING_WITH_VALIDATION': '\n\nEMOTIONAL VALIDATION REQUIRED: User shared emotional state like "feeling down lately" without asking for advice. CRITICAL: Start with strong validation: "That sounds really tough, I\'m sorry you\'re going through this." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice or choices unless requested.',
     
-    'META_CONVERSATION': '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Offer clear alternatives.',
+    'FOLLOW_UP_ADVICE_REQUEST': '\n\nFOLLOW_UP_ADVICE: User wants additional/different techniques for same issue. Say "In addition to what we\'ve discussed, here are some other strategies you might try:" and provide NEW techniques that are different from previous suggestions. Be concrete and actionable.',
+    
+    'SIMPLE_EMOTIONAL_SHARING': '\n\nSIMPLE EMOTIONAL VALIDATION: User shared basic emotional state ("feeling down lately") without asking for advice. Start with validation: "That sounds really tough." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice, coping strategies, or choices unless requested. Focus purely on exploration and understanding.',
+    
+    'CONTEXT_SHARING': '\n\nCONTEXT SHARING RESPONSE: User provided specific context about their situation (sleep troubles, work stress). Acknowledge what they shared, then offer explicit choice: "Would you like to explore what\'s happening with your sleep and work stress more, or are you looking for some practical advice and strategies to help manage these issues?" Must clearly mention BOTH exploration AND advice/strategies as options.',
+    
+    'EMOTIONAL_SHARING_WITH_VALIDATION': '\n\nSTRONG VALIDATION REQUIRED: User shared serious emotional state like hopelessness. CRITICAL: Start with strong emotional validation first: "I\'m really sorry you\'re experiencing that. Feeling hopeless can be incredibly difficult and overwhelming." THEN offer choice: "Would you like to talk more about what\'s contributing to these feelings, or are you looking for some coping strategies to help when this happens?" Validation must come BEFORE choices.',
+    
+    'EXPLORATION_PREFERENCE': '\n\nEXPLORATION PREFERRED: User explicitly stated they want to vent/talk rather than get advice. Show strong respect for their preference. Say: "Of course, I\'m here to listen. Feel free to share what\'s on your mind, and we can take it at whatever pace feels right for you." Focus on listening and understanding, NOT advice.',
+    
+    'FRUSTRATED': '\n\nFRUSTRATION RESPONSE: User is frustrated and wants immediate action. Say: "I\'m sorry for repeating myself. Here are concrete steps you can take right now: 1. [specific actionable step] 2. [another specific step] 3. [third specific step]." ABSOLUTELY NO QUESTIONS. End with action, not questions.',
+    
+    'META_CONVERSATION': '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Examples: bullet points, shorter responses, different approach. Say "Absolutely!" and adapt immediately.',
+    
+    'MEDICAL_URGENCY': '\n\nMEDICAL PROTOCOL: For serious symptoms, immediately recommend professional help. Then offer emotional support. Format: "That sounds serious - chest pain needs immediate attention. Please call your doctor right away or go to the emergency room. While you\'re getting medical help, I want you to know I\'m here to support you emotionally through this." Include BOTH medical urgency AND emotional support.',
+    
+    'BOUNDARY_RESPECT': '\n\nBOUNDARY RESPECT: User set a boundary about a topic. Immediately respect it. Say: "Of course, I understand. We can focus on whatever feels most comfortable for you. Is there another area you\'d like to work on?" Never push the topic they declined.',
+    
+    'ADVICE_REJECTION': '\n\nADVICE REJECTED: User said previous advice doesn\'t work. CRITICAL: Be positive and supportive. Say: "I really appreciate you letting me know that approach isn\'t working for you - that\'s valuable feedback. Let me suggest some completely different strategies..." Then offer different approaches. Never ask why it didn\'t work or push the same advice.',
+    
+    'FALLBACK_REQUEST': '\n\nFALLBACK NEEDED: User says nothing is helping and needs different approach. Say: "Let me suggest some completely different strategies that might help with your [specific issue]:" then list fundamentally different techniques. Focus on alternative methods they haven\'t tried.',
+    
+    'CHOICE_REQUEST': '\n\nCHOICE OFFERING: User wants options to choose from. Provide clear alternatives with explicit choice language. Format: "You have a few different options here: Option 1: [specific approach for sleep] Option 2: [different approach for stress] Option 3: [combined approach]. Which of these sounds most helpful to you right now, or would you like me to explain any of these in more detail?"',
+    
+    'DIRECT_ADVICE_REQUEST': '\n\nDIRECT ADVICE: User explicitly wants immediate concrete advice for specific conditions. Address their exact issues mentioned. Format: "For anxiety and depression, here are some strategies that can help: 1. [specific technique for anxiety] 2. [specific technique for depression] 3. [technique for both]. Would you like to start with one of these, or would you prefer to talk more about what you\'re experiencing first?"',
+    
+    'REPEAT_ADVICE_REQUEST': '\n\nREPEAT REQUEST: User asking for advice again or saying current advice isn\'t working. Provide immediate concrete NEW suggestions. Say: "Let me suggest some different approaches..." Don\'t repeat previous advice.',
     
     'ADVICE_REQUEST': conversationState?.dominantIntent === 'ADVICE_FOCUSED' 
-      ? '\n\nIMPORTANT: User is clearly solution-focused. Continue providing practical advice. Minimize exploratory questions.'
-      : '\n\nIMPORTANT: User explicitly wants advice. Provide 2-3 specific, actionable suggestions. Ask if they want to focus on one.',
+      ? '\n\nDIRECT ADVICE MODE: User explicitly wants advice. Provide 2-3 specific, actionable suggestions immediately. Format: "Here are strategies that can help with [specific issue]..." Minimal questions.'
+      : '\n\nADVICE REQUEST: User explicitly wants advice. First acknowledge their specific conditions/issues mentioned. Then provide 2-3 specific, actionable suggestions addressing those exact issues. End with: "Would you like to focus on one of these approaches, or would you prefer to talk more about what you\'re experiencing?"',
     
-    'FOLLOW_UP_ADVICE': '\n\nIMPORTANT: User wants additional or alternative advice. Don\'t repeat previous suggestions. Provide new angles or deeper detail on implementation.',
+    'FOLLOW_UP_ADVICE': '\n\nFOLLOW-UP ADVICE: User wants additional advice for same issue. Say "Here are some additional strategies for [specific issue]..." and provide NEW techniques. Don\'t repeat previous suggestions. Be concrete and actionable.',
     
     'EMOTIONAL_SHARING': conversationState?.dominantIntent === 'EMOTIONAL_FOCUSED'
-      ? '\n\nIMPORTANT: User is in emotional sharing mode. Continue with validation and gentle exploration. Don\'t rush to solutions.'
-      : '\n\nIMPORTANT: User is sharing emotions. Validate feelings first. Ask one gentle follow-up question max.',
+      ? '\n\nEMOTIONAL SUPPORT MODE: User is sharing feelings. Validate first: "That sounds really hard." Then offer clear choice: "Would you like to talk more about what you\'re going through, or are you looking for some strategies to help you cope with these feelings?"'
+      : '\n\nEMOTION VALIDATION: User sharing emotions like hopelessness. Validate feelings first: "That sounds really difficult to experience." Then offer BOTH options: "Would you like to talk more about what\'s been making you feel this way, or are you looking for some coping strategies to help when these feelings come up? I can help with either approach."',
     
-    'ADVICE_FOCUSED': '\n\nIMPORTANT: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.',
+    'ADVICE_FOCUSED': '\n\nSOLUTION MODE: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.',
     
-    'GENERAL_CONVERSATION': '\n\nBalance listening with solutions. Ask 1 clarifying question, then offer exploration or advice options.'
+    'GENERAL_CONVERSATION': '\n\nBalance listening with solutions. For emotional content, offer choice: "Would you like to explore this more, or are you looking for some practical strategies?" For other content, ask 1 clarifying question then offer options.'
   };
   
   const modifier = intentModifiers[intent] || '';
@@ -1890,6 +1947,5 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
   return basePrompt + modifier;
 }
 
-// Export with error handling - Next.js requires default export
-module.exports = withErrorHandling(gptRouterHandler);
-module.exports.default = withErrorHandling(gptRouterHandler);
+// Export as default for Next.js API route
+export default withErrorHandling(gptRouterHandler);

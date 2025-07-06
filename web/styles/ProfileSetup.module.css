@@ -107,6 +107,9 @@
 }
 
 .stepContainer {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 1rem;
   animation: fadeIn 0.3s ease-out;
 }
 
@@ -129,16 +132,15 @@
 }
 
 .singleCard {
-  max-width: 800px;
+  width: 100%;
   margin: 0 auto 3rem;
 }
 
 .card {
   background: white;
-  border-radius: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(229, 231, 235, 0.8);
-  transition: all 0.3s ease;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
   overflow: hidden;
 }
 
@@ -148,8 +150,9 @@
 }
 
 .cardHeader {
-  padding: 2rem 2rem 1rem;
-  border-bottom: 1px solid rgba(229, 231, 235, 0.5);
+  padding: 2rem 2rem 1rem 2rem;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .cardTitle {
@@ -173,7 +176,7 @@
 }
 
 .cardContent {
-  padding: 1.5rem 2rem 2rem;
+  padding: 2rem;
 }
 
 .inputGroup {
@@ -377,7 +380,9 @@
   display: flex;
   justify-content: center;
   gap: 1rem;
-  margin-top: 2rem;
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid rgba(229, 231, 235, 0.5);
 }
 
 .primaryButton, .secondaryButton {
@@ -401,12 +406,13 @@
 }
 
 .primaryButton:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.35);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
 }
 
 .primaryButton:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
   transform: none;
 }
@@ -551,141 +557,79 @@
 }
 
 .disclaimerSection {
-  padding: 1rem 0;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  margin-bottom: 2rem;
 }
 
 .disclaimerBox {
-  background: #fef2f2;
+  background: linear-gradient(135deg, #fef2f2 0%, #fdf2f8 100%);
   border: 2px solid #fecaca;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin: 1.5rem 0;
-}
-
-.disclaimerTitle {
-  color: #dc2626;
-  font-size: 1.2rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-  display: flex;
-  align-items: center;
-}
-
-.disclaimerText {
-  color: #374151;
-  margin-bottom: 0.75rem;
-}
-
-.disclaimerList {
-  color: #374151;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin: 0.5rem 0 0 1.5rem;
-}
-
-.disclaimerList li {
-  margin-bottom: 0.5rem;
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.1);
 }
 
 .emergencyBox {
-  background: #fffbeb;
-  border: 2px solid #fed7aa;
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  color: white !important;
   border-radius: 12px;
   padding: 1.5rem;
-  margin: 1.5rem 0;
-}
-
-.emergencyTitle {
-  color: #ea580c;
-  font-size: 1.2rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-  display: flex;
-  align-items: center;
-}
-
-.emergencyText {
-  color: #374151;
-  margin-bottom: 0.75rem;
-}
-
-.emergencyList {
-  color: #374151;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin: 0.5rem 0 0 1.5rem;
-}
-
-.emergencyList li {
-  margin-bottom: 0.5rem;
-}
-
-.limitationsBox {
-  background: #f0f9ff;
-  border: 2px solid #bae6fd;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin: 1.5rem 0;
-}
-
-.limitationsTitle {
-  color: #0284c7;
-  font-size: 1.2rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-}
-
-.limitationsList {
-  color: #374151;
-  font-size: 1rem;
-  line-height: 1.6;
-  margin: 0.5rem 0 0 1.5rem;
-}
-
-.limitationsList li {
-  margin-bottom: 0.5rem;
-}
-
-.consentCheckboxes {
   margin: 2rem 0;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.25);
+  border: 2px solid #991b1b;
 }
 
-.checkboxGroup {
-  margin-bottom: 1.5rem;
-  padding: 1.5rem;
-  background: #f9fafb;
-  border: 2px solid #e5e7eb;
+.emergencyBox p {
+  color: white !important;
+  margin: 0;
+  font-weight: 600;
+}
+
+.consentSection {
+  background: #f8fafc;
   border-radius: 12px;
+  padding: 2rem;
+  border: 2px solid #e2e8f0;
+}
+
+.termsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.termsCheckbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1rem;
+  background: white;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
   transition: all 0.2s ease;
 }
 
-.checkboxGroup:hover {
-  background: #f3f4f6;
-  border-color: #d1d5db;
-}
-
-.checkboxLabel {
-  display: flex;
-  align-items: flex-start;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1.6;
+.termsCheckbox:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
 }
 
 .checkbox {
-  width: 20px;
-  height: 20px;
-  margin-right: 1rem;
-  margin-top: 2px;
-  cursor: pointer;
+  margin-top: 0.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
   accent-color: #3b82f6;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .checkboxText {
   color: #374151;
   flex: 1;
+  line-height: 1.5;
+  cursor: pointer;
+  font-size: 0.95rem;
 }
 
 .checkboxText strong {
@@ -693,188 +637,123 @@
   font-weight: 600;
 }
 
-.ageConfirmation {
-  background: #f8fafc;
-  border: 2px solid #cbd5e1;
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin: 2rem 0;
-}
-
-.ageText {
-  color: #475569;
+/* Enhanced disclaimer text styling */
+.disclaimerBox h5 {
+  color: #dc2626 !important;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
   font-size: 1rem;
-  line-height: 1.6;
-  margin: 0;
 }
 
-.ageText strong {
-  color: #1e293b;
+.disclaimerBox p {
+  color: #4b5563 !important;
+  line-height: 1.6;
+  margin-bottom: 0;
+}
+
+.disclaimerBox p strong {
+  color: #1f2937 !important;
   font-weight: 600;
 }
 
-/* Terms and Conditions Section */
-.termsSection {
-  margin-top: 2rem;
-  padding: 1.5rem;
-  background-color: #f8f9fa;
-  border-radius: 12px;
-  border: 1px solid #e9ecef;
+/* Enhanced primary button for final step */
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
-.termsCheckbox {
-  display: flex;
-  align-items: flex-start;
+.primaryButton:not(:disabled):hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
 }
 
-.termsLink {
-  background: none;
-  border: none;
-  color: #007bff;
-  text-decoration: underline;
-  cursor: pointer;
-  font-size: inherit;
-  padding: 0;
-  margin: 0;
+/* Step container improvements */
+.stepContainer {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 1rem;
 }
 
-.termsLink:hover {
-  color: #0056b3;
-  text-decoration: none;
+.singleCard {
+  width: 100%;
 }
 
-/* Modal Styles */
-.modalOverlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modalContent {
+.card {
   background: white;
   border-radius: 16px;
-  max-width: 800px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
 }
 
-.modalHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.cardHeader {
   padding: 2rem 2rem 1rem 2rem;
-  border-bottom: 1px solid #e9ecef;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.modalTitle {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #495057;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.cardContent {
+  padding: 2rem;
 }
 
-.modalClose {
-  background: none;
-  border: none;
-  font-size: 2rem;
-  cursor: pointer;
-  color: #6c757d;
-  line-height: 1;
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.modalClose:hover {
-  background-color: #f8f9fa;
-  color: #495057;
-}
-
-.modalBody {
-  padding: 1rem 2rem;
-}
-
-.modalActions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-  padding: 1rem 2rem 2rem 2rem;
-  border-top: 1px solid #e9ecef;
-}
-
-/* Responsive Design for Modal */
+/* Responsive improvements */
 @media (max-width: 768px) {
-  .modalContent {
-    margin: 0.5rem;
-    max-height: 95vh;
+  .disclaimerBox {
+    padding: 1.5rem;
+    margin-bottom: 1rem;
   }
   
-  .modalHeader {
+  .emergencyBox {
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+  }
+  
+  .consentSection {
+    padding: 1.5rem;
+  }
+  
+  .termsCheckbox {
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+  
+  .cardHeader {
     padding: 1.5rem 1.5rem 1rem 1.5rem;
   }
   
-  .modalTitle {
-    font-size: 1.25rem;
-  }
-  
-  .modalBody {
-    padding: 1rem 1.5rem;
-  }
-  
-  .modalActions {
-    padding: 1rem 1.5rem 1.5rem 1.5rem;
-    flex-direction: column;
-  }
-  
-  .disclaimerBox,
-  .emergencyBox,
-  .limitationsBox {
-    padding: 1rem;
+  .cardContent {
+    padding: 1.5rem;
   }
 }
 
-/* Mobile responsiveness for consent form */
-@media (max-width: 768px) {
-  .disclaimerBox,
-  .emergencyBox,
-  .limitationsBox,
-  .checkboxGroup,
-  .ageConfirmation {
+@media (max-width: 480px) {
+  .disclaimerBox {
     padding: 1rem;
-    margin: 1rem 0;
   }
   
-  .disclaimerTitle,
-  .emergencyTitle,
-  .limitationsTitle {
-    font-size: 1.1rem;
+  .emergencyBox {
+    padding: 1rem;
   }
   
-  .checkbox {
-    width: 18px;
-    height: 18px;
-    margin-right: 0.75rem;
+  .consentSection {
+    padding: 1rem;
   }
   
   .checkboxText {
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+  }
+  
+  .stepContainer {
+    padding: 0 0.5rem;
+  }
+  
+  .cardHeader {
+    padding: 1rem;
+  }
+  
+  .cardContent {
+    padding: 1rem;
   }
 }

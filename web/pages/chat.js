@@ -75,7 +75,7 @@ export default function Chat() {
     }
   }
 
-  // Add missing clearChat function
+  // Clear chat function
   const clearChat = () => {
     setMessages([])
     // If ChatBox component has a clear method, we might need to call it
@@ -93,359 +93,171 @@ export default function Chat() {
       </Layout>
     )
   }
+
   return (
-    <Layout title="Chat">
+    <Layout title="Chat - AskMe AI">
       <div className="chat-container">
         <div className="chat-wrapper">
           
-          {/* Header */}
+          {/* Updated Header to match screenshot */}
           <div className="chat-header">
-            <button className="back-button" onClick={() => router.back()}>
-              <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                <path fillRule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-              </svg>
-            </button>
-            
-            <div className="header-content">
+            <div className="header-left">
               <h1 className="ai-title">AskMe AI</h1>
               <p className="ai-subtitle">Your Wellness Companion</p>
             </div>
-              <div className="token-info">
-              <div className={`token-display ${tokens < 100 ? 'low-tokens' : ''}`}>
-                <span className="token-count">{tokens}</span>
-                <span className="token-label">tokens</span>
+            
+            <div className="header-right">
+              <div className="token-display">
+                <span className="token-count">{tokens.toLocaleString()}</span>
+                <span className="token-label">TOKENS</span>
               </div>
-              <Link href="/buy-tokens" className="buy-tokens-link">
-                Buy More
-              </Link>
             </div>
           </div>
 
-          {/* Low Token Warning */}
-          {tokens < 100 && (
-            <div className="low-token-banner">
-              <div className="warning-content">
-                <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
-                  <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
-                </svg>
-                <span className="warning-text">
-                  {tokens === 0 ? 
-                    'You\'re out of tokens! Complete your profile setup to get 10,000 free tokens.' :
-                    `Running low on tokens (${tokens} remaining). Consider purchasing more to continue chatting.`
-                  }
-                </span>
-                {tokens === 0 ? (
-                  <Link href="/profile-setup" className="setup-profile-btn">
-                    Complete Profile
-                  </Link>
-                ) : (
-                  <Link href="/buy-tokens" className="buy-tokens-btn">
-                    Buy Tokens
-                  </Link>
-                )}
-              </div>
-            </div>
-          )}          {/* Chat Area */}
+          {/* Chat Area */}
           <div className="chat-content">
             <ChatBox 
               userEmail={user.email} 
               onTokenUsed={onTokenUsed}
               onEstimateCost={setEstimatedCost}
               estimateTokens={estimateTokens}
+              hideControls={true}  // Add this prop to hide buttons
+              showEnhanced={false} // Hide Enhanced button
+              showClear={false}    // Hide Clear button  
+              showExport={false}   // Hide Export button
             />
           </div>
           
-          <div className="d-flex justify-content-between align-items-center mb-3">
-            <div className="d-flex align-items-center gap-2">
-              <button 
-                className="btn btn-outline-danger btn-sm rounded-pill px-3"
-                onClick={clearChat}
-              >
-                🗑️ Clear
-              </button>
-            </div>
-            <span className="badge bg-light text-dark">{messages.length} messages</span>
-          </div>
-          
         </div>
-      </div>      <style jsx>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        
+      </div>
+
+      <style jsx>{`
         .chat-container {
           min-height: 100vh;
-          background: linear-gradient(135deg, #f8fafc 0%, #f4f6fb 100%);
+          background: #f8fafc;
           padding: 0;
           margin: 0;
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
         
         .chat-wrapper {
-          width: 50vw;
-          min-width: 320px;
+          width: 100vw;
           max-width: 900px;
           margin: 0 auto;
           background: white;
           min-height: 100vh;
           display: flex;
           flex-direction: column;
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
-          border-radius: 0;
         }
         
+        /* Header - Purple gradient matching screenshot */
         .chat-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #8b5cf6 100%);
           color: white;
-          padding: clamp(1rem, 2.5vw, 1.5rem) clamp(1.5rem, 4vw, 2rem);
+          padding: 2rem 2rem 1.5rem 2rem;
           display: flex;
-          align-items: center;
-          gap: clamp(1rem, 2.5vw, 1.5rem);
-          box-shadow: 0 2px 16px rgba(102, 126, 234, 0.15);
+          justify-content: space-between;
+          align-items: flex-start;
           position: relative;
-          flex-wrap: wrap;
         }
         
-        .back-button {
-          background: rgba(255, 255, 255, 0.15);
-          border: none;
-          border-radius: 12px;
-          width: 36px;
-          height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: white;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-        
-        .back-button:hover {
-          background: rgba(255, 255, 255, 0.25);
-          transform: translateX(-2px);
-        }
-        
-        .header-content {
+        .header-left {
           flex: 1;
         }
         
         .ai-title {
-          font-size: clamp(1.25rem, 3vw, 1.5rem);
-          font-weight: 600;
+          font-size: 2.5rem;
+          font-weight: 700;
           margin: 0;
           color: white;
-          font-family: 'Inter', sans-serif;
+          line-height: 1.2;
         }
         
         .ai-subtitle {
-          font-size: clamp(0.8rem, 2vw, 0.9rem);
+          font-size: 1.125rem;
           margin: 0.25rem 0 0 0;
-          color: rgba(255, 255, 255, 0.85);
-          font-weight: 300;
+          color: rgba(255, 255, 255, 0.9);
+          font-weight: 400;
         }
         
-        .token-info {
-          text-align: right;
+        .header-right {
+          display: flex;
+          align-items: center;
         }
-          .token-display {
+        
+        /* Token display matching screenshot */
+        .token-display {
           background: rgba(255, 255, 255, 0.15);
-          border-radius: 20px;
-          padding: clamp(0.4rem, 1.5vw, 0.5rem) clamp(0.75rem, 2vw, 1rem);
-          margin-bottom: 0.75rem;
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 24px;
+          padding: 0.75rem 1.25rem;
           backdrop-filter: blur(10px);
-          transition: all 0.3s ease;
-          display: inline-block;
-        }
-        
-        .token-display.low-tokens {
-          background: rgba(255, 193, 7, 0.2);
-          border: 1px solid rgba(255, 193, 7, 0.4);
-          animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.7; }
+          text-align: center;
+          min-width: 120px;
         }
         
         .token-count {
-          font-size: clamp(1rem, 2.5vw, 1.2rem);
-          font-weight: 600;
+          display: block;
+          font-size: 1.5rem;
+          font-weight: 700;
           color: white;
+          line-height: 1.2;
         }
         
         .token-label {
-          font-size: clamp(0.7rem, 1.5vw, 0.8rem);
+          display: block;
+          font-size: 0.75rem;
           color: rgba(255, 255, 255, 0.8);
-          margin-left: 0.25rem;
-          font-weight: 300;
-        }
-        
-        .buy-tokens-link {
-          background: rgba(255, 255, 255, 0.9);
-          color: #667eea;
-          text-decoration: none;
-          padding: clamp(0.35rem, 1.5vw, 0.4rem) clamp(0.75rem, 2vw, 1rem);
-          border-radius: 16px;
-          font-size: clamp(0.8rem, 2vw, 0.85rem);
           font-weight: 500;
-          transition: all 0.2s ease;
-          display: inline-block;
-          white-space: nowrap;
+          letter-spacing: 0.5px;
+          margin-top: 0.125rem;
         }
         
-        .buy-tokens-link:hover {
+        .chat-content {
+          flex: 1;
+          padding: 0;
+          overflow-y: auto;
           background: white;
-          color: #5a67d8;
-          text-decoration: none;          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         
-        /* Low Token Warning Banner */
-        .low-token-banner {
-          background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
-          border-bottom: 1px solid rgba(255, 193, 7, 0.3);
-          padding: clamp(0.75rem, 2vw, 1rem) clamp(1.5rem, 4vw, 2rem);
-          animation: slideDown 0.3s ease-out;
-        }
-        
-        .warning-content {
-          display: flex;
-          align-items: center;
-          gap: clamp(0.75rem, 2vw, 1rem);
-          color: #f59e0b;
-          font-weight: 500;
-          flex-wrap: wrap;
-        }
-        
-        .warning-text {
-          flex: 1;
-          min-width: 200px;
-          font-size: clamp(0.8rem, 2vw, 0.9rem);
-        }
-        
-        .setup-profile-btn, .buy-tokens-btn {
-          background: linear-gradient(135deg, #f59e0b 0%, #f97316 100%);
-          color: white;
-          text-decoration: none;
-          padding: clamp(0.4rem, 1.5vw, 0.5rem) clamp(0.75rem, 2vw, 1rem);
-          border-radius: 12px;
-          font-size: clamp(0.8rem, 2vw, 0.875rem);
-          font-weight: 600;
-          transition: all 0.2s ease;
-          white-space: nowrap;
-        }
-        
-        .setup-profile-btn:hover, .buy-tokens-btn:hover {
-          background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
-          color: white;
-          text-decoration: none;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(249, 115, 22, 0.3);
-        }
-        
-        @keyframes slideDown {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }.chat-content {
-          flex: 1;
-          overflow: hidden;
-        }        @media (max-width: 768px) {
-          .chat-wrapper {
-            width: 95vw;
-            min-width: 320px;
-            border-radius: 0;
-            box-shadow: none;
-          }
-          
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
           .chat-header {
-            padding: 1rem 1.5rem;
+            padding: 1.5rem 1.5rem 1.25rem 1.5rem;
             flex-direction: column;
             gap: 1rem;
             text-align: center;
           }
           
-          .header-content {
-            order: 1;
+          .header-right {
+            align-self: center;
           }
           
-          .back-button {
-            position: absolute;
-            left: 1.5rem;
-            top: 50%;
-            transform: translateY(-50%);
-          }
-          
-          .token-info {
-            order: 2;
-            margin-top: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 1rem;
-          }
-          
-          .token-display {
-            margin-bottom: 0;
-          }
-          
-          .low-token-banner {
-            padding: 0.75rem 1.5rem;
-          }
-          
-          .warning-content {
-            flex-direction: column;
-            gap: 0.75rem;
-            text-align: center;
-          }
-          
-          .warning-text {
-            min-width: auto;
-          }
-        }
-        
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .chat-wrapper {
-            width: 70vw;
-            max-width: 700px;
-          }
-        }
-        
-        @media (min-width: 1025px) {
-          .chat-wrapper {
-            width: 50vw;
-            max-width: 900px;
+          .ai-title {
+            font-size: 2rem;
           }
         }
         
         @media (max-width: 480px) {
           .chat-wrapper {
             width: 100vw;
-            min-width: 100%;
           }
           
           .chat-header {
-            padding: 0.75rem 1rem;
+            padding: 1.25rem 1rem 1rem 1rem;
           }
           
-          .back-button {
-            left: 1rem;
-            width: 32px;
-            height: 32px;
+          .ai-title {
+            font-size: 1.75rem;
           }
           
-          .token-info {
-            flex-direction: column;
-            gap: 0.5rem;
+          .token-display {
+            padding: 0.625rem 1rem;
+            min-width: 100px;
           }
           
-          .buy-tokens-link {
-            font-size: 0.8rem;
-            padding: 0.35rem 0.75rem;
+          .token-count {
+            font-size: 1.25rem;
           }
         }
       `}</style>
