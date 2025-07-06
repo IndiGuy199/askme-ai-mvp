@@ -10,7 +10,7 @@ const updateConversationState = (userId, currentIntent, message) => {
   }
 
   try {
-    const state = conversationStates.get(userId) || {
+    let state = conversationStates.get(userId) || {
       consecutiveQuestions: 0,
       userFrustrationSignals: 0,
       lastAdviceGiven: null,
@@ -22,7 +22,17 @@ const updateConversationState = (userId, currentIntent, message) => {
       sessionStartTime: Date.now(),
       topicHistory: [],
       lastUserMessage: '',
-      repeatRequestCount: 0
+      repeatRequestCount: 0,
+      questionsAsked: new Set(), // Track asked questions
+      topicsExplored: new Set(), // Track covered topics
+      lastMainIssue: null, // Remember the core issue
+      interventionCount: 0, // Track how many times we've intervened
+      boundariesSet: new Set(), // Track topics user declined to discuss
+      medicalConcerns: [], // Track medical issues mentioned
+      choiceRequestCount: 0, // Track requests for options
+      adviceRejectionCount: 0, // Track when advice was rejected
+      lastChoiceOffered: null, // Track last choice provided
+      rejectedAdvice: [] // Track specific advice that was rejected
     };
     
     // Track current topic
@@ -55,16 +65,74 @@ const updateConversationState = (userId, currentIntent, message) => {
       state.intentHistory = state.intentHistory.slice(-10);
     }
     
-    // Enhanced frustration tracking
+    // Enhanced intent-specific tracking
     if (currentIntent === 'FRUSTRATED') {
       state.userFrustrationSignals++;
     } else if (currentIntent === 'REPEAT_ADVICE_REQUEST') {
       state.repeatRequestCount++;
+    } else if (currentIntent === 'BOUNDARY_RESPECT') {
+      // Extract the topic they don't want to discuss
+      const words = message.toLowerCase().split(/\s+/);
+      const topicKeywords = ['work', 'relationship', 'family', 'money', 'health', 'past'];
+      const declinedTopic = topicKeywords.find(topic => 
+        words.some(word => word.includes(topic))
+      );
+      if (declinedTopic) {
+        state.boundariesSet.add(declinedTopic);
+      }
+    } else if (currentIntent === 'MEDICAL_URGENCY') {
+      state.medicalConcerns.push({
+        message: message.substring(0, 100),
+        timestamp: Date.now(),
+        urgent: true
+      });
+    } else if (currentIntent === 'CHOICE_REQUEST') {
+      state.choiceRequestCount++;
+    } else if (currentIntent === 'ADVICE_REJECTION') {
+      state.adviceRejectionCount++;
+      // Track the specific advice that was rejected
+      if (state.lastAdviceContent) {
+        state.rejectedAdvice = state.rejectedAdvice || [];
+        state.rejectedAdvice.push({
+          advice: state.lastAdviceContent.substring(0, 100),
+          timestamp: Date.now()
+        });
+        // Keep only last 3 rejected pieces of advice
+        if (state.rejectedAdvice.length > 3) {
+          state.rejectedAdvice = state.rejectedAdvice.slice(-3);
+        }
+      }
     } else if (currentIntent === 'ADVICE_REQUEST' || currentIntent === 'EMOTIONAL_SHARING') {
       state.userFrustrationSignals = Math.max(0, state.userFrustrationSignals - 1);
       state.repeatRequestCount = 0;
     }
     
+    // Extract potential questions from AI responses
+    const questionPatterns = [
+      /what\s+(?:have\s+you\s+tried|do\s+you\s+think|feels?\s+\w+)/gi,
+      /how\s+(?:long|does?\s+\w+|are\s+you)/gi,
+      /when\s+did\s+you/gi,
+      /can\s+you\s+tell\s+me/gi
+    ];
+    
+    const questions = [];
+    questionPatterns.forEach(pattern => {
+      const matches = message.match(pattern);
+      if (matches) questions.push(...matches);
+    });
+    
+    // Track asked questions
+    questions.forEach(q => state.questionsAsked.add(q));
+    
+    // Store main issue mentioned
+    const issueKeywords = ['anxiety', 'depression', 'stress', 'relationship', 'work', 'health'];
+    const mentionedIssue = issueKeywords.find(keyword => 
+      message.toLowerCase().includes(keyword)
+    );
+    if (mentionedIssue) {
+      state.lastMainIssue = mentionedIssue;
+    }
+
     // Calculate dominant intent (last 5 messages)
     const recentIntents = state.intentHistory.slice(-5).map(h => h.intent);
     const adviceFocused = recentIntents.filter(i => 
@@ -119,6 +187,12 @@ const trackAIAction = (userId, action, content) => {
       state.lastAdviceGiven = Date.now();
       state.lastAdviceContent = content;
       state.repeatRequestCount = 0;
+    } else if (action === 'OFFERED_CHOICES') {
+      state.lastChoiceOffered = {
+        content: content.substring(0, 200),
+        timestamp: Date.now()
+      };
+      state.choiceRequestCount = 0;
     }
     
     // Keep only last 5 actions
@@ -164,6 +238,27 @@ const getFlowRecommendations = (userId) => {
       };
     }
     
+    if (state.choiceRequestCount >= 2) {
+      return {
+        type: 'offer_choices',
+        message: 'User wants options to choose from. Use explicit choice language.'
+      };
+    }
+    
+    if (state.adviceRejectionCount >= 2) {
+      return {
+        type: 'acknowledge_rejection',
+        message: 'User has rejected advice multiple times. Acknowledge their experience.'
+      };
+    }
+    
+    if (state.boundariesSet.size > 0) {
+      return {
+        type: 'respect_boundaries',
+        message: `User has set boundaries around: ${Array.from(state.boundariesSet).join(', ')}`
+      };
+    }
+    
     if (state.repeatRequestCount >= 2) {
       return {
         type: 'clarify_need',
@@ -187,10 +282,24 @@ const getConversationState = (userId) => {
   }
 };
 
+// New function to check if we should force action
+const shouldForceAction = (userId) => {
+  const state = conversationStates.get(userId);
+  if (!state) return false;
+
+  return (
+    state.repeatRequestCount >= 2 ||
+    state.userFrustrationSignals >= 2 ||
+    state.interventionCount >= 3 ||
+    state.questionsAsked.size >= 5 // Too many questions asked
+  );
+};
+
 module.exports = { 
   updateConversationState, 
   trackAIAction,
   getConversationState,
   shouldAvoidRepeatingAdvice,
-  getFlowRecommendations
+  getFlowRecommendations,
+  shouldForceAction
 };

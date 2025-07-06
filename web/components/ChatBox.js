@@ -2,7 +2,16 @@ import React, { useState, useRef, useEffect } from 'react'
 import styles from '../styles/Chat.module.css'
 import ReactMarkdown from 'react-markdown'
 
-export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estimateTokens }) {
+export default function ChatBox({ 
+  userEmail, 
+  onTokenUsed, 
+  onEstimateCost, 
+  estimateTokens,
+  hideControls = false,     // Add this prop
+  showEnhanced = true,      // Add this prop
+  showClear = true,         // Add this prop
+  showExport = true         // Add this prop
+}) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(true) // Start with loading state
@@ -230,6 +239,39 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
       setIsLoading(false)
     }
   }
+
+  // Send conversation history to API to restore context
+  const sendContextRestorationMessage = async (restoredMessages) => {
+    try {
+      console.log('Sending context restoration message with', restoredMessages.length, 'messages');
+      
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      
+      const res = await fetch('/api/gptRouter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: userEmail,
+          message: "__RESTORE_CONTEXT__", // Special command to restore context
+          conversationHistory: restoredMessages.slice(-10) // Send last 10 messages for context
+        }),
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+
+      if (!res.ok) {
+        console.warn('Context restoration failed, but continuing with restored chat')
+      } else {
+        console.log('Successfully restored conversation context')
+      }
+    } catch (err) {
+      console.error('Error restoring context:', err)
+      // Don't throw - we can still continue with the restored messages
+    }
+  }
+
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ 
@@ -586,47 +628,56 @@ export default function ChatBox({ userEmail, onTokenUsed, onEstimateCost, estima
 
   return (
     <div className="chat-container">
-      {/* Context Bar */}
-      <div className="context-bar">
-        <div className="context-actions">
-          <button className="context-btn enhanced-mode" title="Enhanced Mode">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M8 12a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/>
-            </svg>
-            Enhanced
-          </button>
+      
+      {/* Context Bar - Only show if not hidden */}
+      {!hideControls && (
+        <div className="context-bar">
+          <div className="context-actions">
+            {showEnhanced && (
+              <button className="context-btn enhanced-mode" title="Enhanced Mode">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M8 16A8 0 1 0 8 0a8 8 0 0 0 0 16zM5.354 7.146a.5.5 0 1 0-.708.708L7.293 10.5a.5.5 0 0 0 .414.146.5.5 0 0 0 .293-.854L5.354 7.146z"/>
+                </svg>
+                Enhanced
+              </button>
+            )}
+            
+            {showClear && (
+              <button className="context-btn clear-chat" onClick={clearContext} title="Clear Chat">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
+                  <path fillRule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1-1V2a1 1 0 011-1H6a1 1 0 011-1h2a1 1 0 011 1h3.5a1 1 0 011 1v1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                </svg>
+                Clear
+              </button>
+            )}
+            
+            {showExport && (
+              <button className="context-btn export-btn" title="Export Chat">
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                  <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                </svg>
+                Export
+              </button>
+            )}
+          </div>
           
-          <button className="context-btn clear-chat" onClick={clearContext} title="Clear Chat">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M5.5 5.5A.5.5 0 016 6v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm2.5 0a.5.5 0 01.5.5v6a.5.5 0 01-1 0V6a.5.5 0 01.5-.5zm3 .5a.5.5 0 00-1 0v6a.5.5 0 001 0V6z"/>
-              <path fillRule="evenodd" d="M14.5 3a1 1 0 01-1 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a1 1 0 01-1-1V2a1 1 0 011-1H6a1 1 0 011-1h2a1 1 0 011 1h3.5a1 1 0 011 1v1zM4.118 4L4 4.059V13a1 1 0 001 1h6a1 1 0 001-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-            </svg>
-            Clear
-          </button>
-          
-          <button className="context-btn export-chat" title="Export Chat">
-            <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-              <path d="M.5 9.9a.5.5 0 01.5.5v2.5a1 1 0 001 1h12a1 1 0 001-1v-2.5a.5.5 0 011 0v2.5a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.5a.5.5 0 01.5-.5z"/>
-              <path d="M7.646 11.854a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 10.293V1.5a.5.5 0 00-1 0v8.793L5.354 8.146a.5.5 0 10-.708.708l3 3z"/>
-            </svg>
-            Export
-          </button>
+          {/* Session info - only show if context bar is visible */}
+          <div className="session-info">
+            <span className="message-count">{messages.length} message{messages.length !== 1 ? 's' : ''}</span>
+            {chatRestored && (
+              <span className="session-status">
+                <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M8 16A8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                  <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
+                </svg>
+                Restored
+              </span>
+            )}
+          </div>
         </div>
-        
-        {/* Session Info */}
-        <div className="session-info">
-          <span className="message-count">{messages.length} messages</span>
-          {chatRestored && (
-            <span className="session-status">
-              <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M8 16A8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
-                <path d="M8 4a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4z"/>
-              </svg>
-              Restored
-            </span>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Messages Area */}
       <div className="messages-area">

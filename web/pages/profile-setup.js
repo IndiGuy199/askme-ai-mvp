@@ -14,22 +14,36 @@
  * - All other cases → General Wellness Coach
  */
 
+// Updated profile setup with Terms & Conditions instead of Communication Preferences
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../utils/supabaseClient'
-import { determineOptimalCoach, getCoachAssignmentReason } from '../utils/coachMatcher'
+import { determineOptimalCoach } from '../utils/coachMatcher'
 import Layout from '../components/Layout'
 import styles from '../styles/ProfileSetup.module.css'
 
-export default function ProfileSetup() {  const router = useRouter()
-  const [currentStep, setCurrentStep] = useState(1);
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [dataLoading, setDataLoading] = useState(true)
-  const [message, setMessage] = useState('')
-  const [allChallenges, setAllChallenges] = useState([])
-  
-  const [form, setForm] = useState({
+// Only keep categories fallback as a minimal safety net
+const FALLBACK_CATEGORIES = [
+  {
+    id: 1,
+    code: 'mental_health',
+    label: 'Mental Health',
+    description: 'Help with anxiety, depression, stress, and emotional wellbeing'
+  },
+  {
+    id: 2, 
+    code: 'addiction_recovery',
+    label: 'Addiction & Recovery',
+    description: 'Support for overcoming addictive behaviors and maintaining recovery'
+  }
+]
+
+export default function ProfileSetup() {
+  const [currentStep, setCurrentStep] = useState(1)
+  const [selectedCategory, setSelectedCategory] = useState(null)
+  const [categories, setCategories] = useState([])
+  const [availableChallenges, setAvailableChallenges] = useState([])
+  const [formData, setFormData] = useState({
     firstName: '',
     age: '',
     sex: '',
@@ -37,95 +51,100 @@ export default function ProfileSetup() {  const router = useRouter()
     city: '',
     country: '',
     selectedChallenges: [],
-    agreeToTerms: false
+    // Updated consent fields to match new content
+    ageConfirmed: false,
+    termsAccepted: false,
+    privacyAccepted: false,
+    aiInteractionAcknowledged: false
   })
+  const [loading, setLoading] = useState(false)
+  const [challengesLoading, setChallengesLoading] = useState(false)
+  const router = useRouter()
 
-  const [showConsentModal, setShowConsentModal] = useState(false)
-  const [consentForm, setConsentForm] = useState({
-    consentGiven: false,
-    understandsLimitations: false,
-    agreeToTerms: false
-  })
-
-  const countries = [
-    'United States', 'Canada', 'United Kingdom', 'Australia', 'Germany', 
-    'France', 'Italy', 'Spain', 'Netherlands', 'Sweden', 'Norway', 'Denmark',
-    'Finland', 'Switzerland', 'Austria', 'Belgium', 'Portugal', 'Other'
-  ]
-
-  const sexOptions = ['Male', 'Female', 'Non-binary', 'Prefer not to say']
-    const ethnicityOptions = [
-    'Asian', 'Black or African American', 'Hispanic or Latino', 
-    'Native American', 'Pacific Islander', 'White', 'Mixed', 'Other', 'Prefer not to say'
-  ]
-
+  // Load categories on mount
   useEffect(() => {
-    async function initialize() {
-      try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        if (sessionError || !session) {
-          router.push('/login')
-          return
-        }
+    loadCategories()
+  }, [])
 
-        // Check if profile is already complete
-        const { data: userProfile } = await supabase
-          .from('users')
-          .select('profile_completed')
-          .eq('email', session.user.email)
-          .single()
-
-        if (userProfile?.profile_completed) {
-          router.push('/dashboard')
-          return
-        }
-
-        await loadAllOptions()
-        setUser(session.user)
-      } catch (error) {
-        console.error('Error initializing:', error)
-        setMessage('An error occurred. Please try again.')
-      } finally {
-        setDataLoading(false)
-      }
-    }
-
-    initialize()
-  }, [router])
-  const loadAllOptions = async () => {
+  const loadCategories = async () => {
     try {
-      // Fetch challenges only
-      const { data: challengesData, error: challengesError } = await supabase
-        .from('coach_challenges')
-        .select('id, challenge_id, label, description, display_order')
-        .eq('is_active', true)
+      const { data, error } = await supabase
+        .from('challenge_categories')
+        .select('*')
         .order('display_order')
 
-      if (challengesError) throw challengesError
-
-      // Remove duplicates
-      const uniqueChallenges = []
-      const seenChallengeIds = new Set()
-      
-      challengesData?.forEach(challenge => {
-        if (!seenChallengeIds.has(challenge.challenge_id)) {
-          uniqueChallenges.push(challenge)
-          seenChallengeIds.add(challenge.challenge_id)
-        }
-      })
-
-      setAllChallenges(uniqueChallenges)
+      if (error) {
+        console.warn('Categories table not found:', error)
+        setCategories(FALLBACK_CATEGORIES)
+      } else if (data && data.length > 0) {
+        setCategories(data)
+      } else {
+        console.warn('No categories found in database, using fallback')
+        setCategories(FALLBACK_CATEGORIES)
+      }
     } catch (error) {
-      console.error('Error loading options:', error)
+      console.error('Error loading categories:', error)
+      setCategories(FALLBACK_CATEGORIES)
     }
   }
 
-  const handleInputChange = (field, value) => {
-    setForm(prev => ({ ...prev, [field]: value }))
+  const loadChallengesForCategory = async (categoryId) => {
+    setChallengesLoading(true)
+    try {
+      console.log('🔧 Loading challenges for category ID:', categoryId)
+      
+      // Query coach_challenges for the selected category ONLY
+      const { data, error } = await supabase
+        .from('coach_challenges')
+        .select('id, challenge_id, label, description, category_id')
+        .eq('category_id', categoryId)
+        .eq('is_active', true)  // Only active challenges
+        .order('display_order', { ascending: true })
+        .order('label', { ascending: true })
+
+      if (error) {
+        console.error('Error loading challenges:', error)
+        setAvailableChallenges([])
+      } else if (data && data.length > 0) {
+        // Transform the data to the format needed by the UI
+        const challenges = data.map(challenge => ({
+          id: challenge.id, // UUID for database operations
+          challenge_id: challenge.challenge_id, // String ID for selection
+          label: challenge.label || formatChallengeLabel(challenge.challenge_id)
+        }))
+        
+        console.log('🔧 Loaded challenges for category:', challenges)
+        setAvailableChallenges(challenges)
+      } else {
+        console.warn(`No challenges found for category ${categoryId}`)
+        setAvailableChallenges([])
+      }
+    } catch (error) {
+      console.error('Error loading challenges:', error)
+      setAvailableChallenges([])
+    } finally {
+      setChallengesLoading(false)
+    }
   }
-  const toggleChallenge = (challengeId) => {
-    setForm(prev => ({
+
+  // Helper function to format challenge labels if not provided
+  const formatChallengeLabel = (challengeId) => {
+    return challengeId
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategory(category)
+    setFormData(prev => ({ ...prev, selectedChallenges: [] }))
+    setAvailableChallenges([]) // Clear previous challenges
+    loadChallengesForCategory(category.id)
+    setCurrentStep(2)
+  }
+
+  const handleChallengeToggle = (challengeId) => {
+    setFormData(prev => ({
       ...prev,
       selectedChallenges: prev.selectedChallenges.includes(challengeId)
         ? prev.selectedChallenges.filter(id => id !== challengeId)
@@ -133,608 +152,530 @@ export default function ProfileSetup() {  const router = useRouter()
     }))
   }
 
-  const handleConsentChange = (field, value) => {
-    setConsentForm(prev => ({ ...prev, [field]: value }))
+  const handleConsentChange = (consentType, value) => {
+    setFormData(prev => ({
+      ...prev,
+      [consentType]: value
+    }))
   }
-  const acceptConsent = async () => {
-    if (consentForm.consentGiven && consentForm.understandsLimitations && consentForm.agreeToTerms) {
+
+  const handleSubmit = async () => {
+    if (!selectedCategory || formData.selectedChallenges.length === 0) {
+      alert('Please select at least one challenge to work on.')
+      return
+    }
+
+    if (!formData.ageConfirmed || !formData.termsAccepted || !formData.privacyAccepted || !formData.aiInteractionAcknowledged) {
+      alert('Please accept all terms and conditions to continue.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
+      // REMOVE: Client-side coach assignment
+      // const assignedCoach = determineOptimalCoach(...)
+
+      // INSTEAD: Get coach from the first selected challenge (since all challenges in a category have the same coach)
+      const firstSelectedChallenge = availableChallenges.find(
+        challenge => formData.selectedChallenges.includes(challenge.challenge_id)
+      )
+
+      if (!firstSelectedChallenge?.id) {
+        throw new Error('No valid challenge found for coach assignment')
+      }
+
+      // Get the coach already assigned to this challenge in the database
+      const { data: challengeWithCoach, error: coachError } = await supabase
+        .from('coach_challenges')
+        .select('coach_profile_id')
+        .eq('id', firstSelectedChallenge.id)
+        .single()
+
+      if (coachError || !challengeWithCoach) {
+        console.error('Error getting coach for challenge:', coachError)
+        throw new Error('Could not determine coach assignment')
+      }
+
+      const assignedCoachUUID = challengeWithCoach.coach_profile_id
+
+      // 1. Update users table with the database-assigned coach
+      const { error: userError } = await supabase
+        .from('users')
+        .upsert({
+          id: user.id,
+          email: user.email,
+          first_name: formData.firstName,
+          age: parseInt(formData.age) || null,
+          sex: formData.sex,
+          ethnicity: formData.ethnicity,
+          city: formData.city,
+          country: formData.country,
+          coach_profile_id: assignedCoachUUID, // Use database-assigned coach
+          primary_category: selectedCategory.code,
+          profile_completed: true
+        }, { 
+          onConflict: 'id',
+          ignoreDuplicates: false 
+        })
+
+      if (userError) {
+        console.error('User update error:', userError)
+        throw userError
+      }
+
+      // 2. Store consent record
       try {
-        // Store consent acceptance in database
         const { error: consentError } = await supabase
           .from('user_consent')
-          .upsert({
+          .insert({
             email: user.email,
             consent_accepted: true,
             consent_date: new Date().toISOString(),
-            consent_version: '1.0', // Track consent version for future changes
-            ip_address: null, // Could be populated if needed
+            consent_version: '2.0',
+            ip_address: userIpAddress,
             user_agent: navigator.userAgent,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            terms_text: 'I accept the Terms of Service and understand that AskMe AI provides wellness guidance and is not a substitute for professional medical care.',
+            privacy_text: 'I accept the Privacy Policy and consent to the processing of my personal data for wellness coaching purposes.',
+            medical_disclaimer_text: 'I understand that AskMe AI is for educational and wellness support purposes only.',
+            consent_method: 'web_form',
+            is_active: true
           })
 
         if (consentError) {
-          console.error('Error storing consent:', consentError)
-          setMessage('Error storing consent. Please try again.')
-          return
+          console.warn('Consent storage error:', consentError)
         }
-
-        // Update local form state
-        setForm(prev => ({ ...prev, agreeToTerms: true }))
-        setShowConsentModal(false)
-        setMessage('Consent accepted and recorded successfully!')
-        
-        // Clear consent form
-        setConsentForm({
-          consentGiven: false,
-          understandsLimitations: false,
-          agreeToTerms: false
-        })
-        
-      } catch (error) {
-        console.error('Error in acceptConsent:', error)
-        setMessage('Error processing consent. Please try again.')
-      }
-    } else {
-      setMessage('Please read and accept all consent terms to continue')
-    }
-  }
-  const openConsentModal = () => {
-    setShowConsentModal(true)
-    setMessage('')
-  };
-  
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    
-    if (!form.agreeToTerms) {
-      setMessage('Please read and accept the Terms and Conditions to continue')
-      return
-    }
-    
-    setLoading(true)
-    setMessage('');
-    
-    try {
-      if (!form.firstName.trim()) {
-        throw new Error('First name is required')
-      }
-      if (!form.age) {
-        throw new Error('Age is required')
-      }
-      if (!form.sex) {
-        throw new Error('Sex is required')
-      }
-      if (!form.ethnicity) {
-        throw new Error('Ethnicity is required')
+      } catch (consentError) {
+        console.warn('Consent table not available:', consentError)
       }
 
-      // Create or update user profile
-      const { error: userError } = await supabase
-        .from('users')        .upsert({
-          email: user.email,
-          first_name: form.firstName,
-          age: parseInt(form.age),
-          sex: form.sex,
-          ethnicity: form.ethnicity,
-          city: form.city || null,
-          country: form.country || null,
-          profile_completed: true,
-          last_updated: new Date().toISOString()
-        })
-
-      if (userError) throw userError
-
-      // Save challenges
-      if (form.selectedChallenges.length > 0) {
-        const challengesData = form.selectedChallenges.map(challengeId => ({
-          email: user.email,
-          challenge_id: challengeId,
-          created_at: new Date().toISOString()
-        }))
-
-        const { error: challengesError } = await supabase
-          .from('user_challenges')
-          .upsert(challengesData)
-
-        if (challengesError) throw challengesError
-      }      // Save communication preferences - use default values since step 2 is removed
-      const { error: prefsError } = await supabase
-        .from('user_communication_preferences')
+      // 3. Create user profile record
+      const { error: profileError } = await supabase
+        .from('user_profiles')
         .upsert({
-          email: user.email,
-          communication_style: 'balanced', // Default value
-          coaching_format: 'conversational', // Default value
+          user_id: user.id,
+          memory_summary: `${formData.firstName} is starting their journey with ${selectedCategory.label}. Selected challenges: ${formData.selectedChallenges.join(', ')}.`,
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
-        })
+        }, { onConflict: 'user_id' })
 
-      if (prefsError) throw prefsError// Determine optimal coach based on challenges and age only
-      // Determine optimal coach based on challenges and age only (no goals)
-      const optimalCoachCode = determineOptimalCoach(form.selectedChallenges, parseInt(form.age))
-      
-      // Get the coach profile by code
-      const { data: coachProfile } = await supabase
-        .from('coach_profiles')
-        .select('id')
-        .eq('code', optimalCoachCode)
-        .single()
-      
-      if (coachProfile) {
-        const { error: coachError } = await supabase
-          .from('users')
-          .update({ 
-            coach_profile_id: coachProfile.id,
-            coach_assignment_reason: getCoachAssignmentReason(optimalCoachCode, form.selectedChallenges, parseInt(form.age))
-          })
-          .eq('email', user.email)
+      if (profileError) throw profileError
 
-        if (coachError) throw coachError
+      // 4. Store user challenges using the loaded challenge UUIDs
+      try {
+        // Get the UUIDs for the selected challenges
+        const selectedChallengeUUIDs = availableChallenges
+          .filter(challenge => formData.selectedChallenges.includes(challenge.challenge_id))
+          .map(challenge => challenge.id)
+          .filter(id => id) // Remove any null/undefined IDs
+
+        if (selectedChallengeUUIDs.length > 0) {
+          const challengeRecords = selectedChallengeUUIDs.map(challengeUUID => ({
+            user_id: user.id,
+            coach_challenge_id: challengeUUID
+          }))
+
+          const { error: userChallengesError } = await supabase
+            .from('user_challenges')
+            .insert(challengeRecords)
+
+          if (userChallengesError) {
+            console.warn('Could not store user challenge selections:', userChallengesError)
+          } else {
+            console.log(`Successfully stored ${challengeRecords.length} challenge selections`)
+          }
+        } else {
+          console.warn('No valid challenge UUIDs found for storage')
+        }
+      } catch (err) {
+        console.warn('Challenge storage error:', err)
       }
 
-      // Grant 10,000 welcome tokens for completing profile
-      console.log('Granting 10,000 welcome tokens for profile completion...')
-      const { error: tokenError } = await supabase
-        .from('users')
-        .update({ tokens: 10000 })
-        .eq('email', user.email)
-
-      if (tokenError) {
-        console.error('Failed to grant welcome tokens:', tokenError)
-        // Don't throw error - profile creation succeeded, just log the token issue
-      } else {
-        console.log('Successfully granted 10,000 welcome tokens')
-      }
-
+      console.log(`Profile completed successfully for ${selectedCategory.label} category`)
       router.push('/dashboard')
+
     } catch (error) {
-      console.error('Error saving profile:', error)
-      setMessage(error.message || 'An error occurred. Please try again.')    } finally {
+      console.error('Error completing profile:', error)
+      alert(`Error completing profile: ${error.message}. Please try again.`)
+    } finally {
       setLoading(false)
     }
-  };const nextStep = () => {
-    if (currentStep === 1 && (!form.firstName.trim() || !form.age || !form.sex || !form.ethnicity || !form.agreeToTerms)) {
-      setMessage('Please fill in all required fields and accept the terms to continue')
-      return
-    }
-    // Since we removed step 2, directly submit the form
-    handleSubmit({ preventDefault: () => {} })
-    setMessage('')
-  }
-
-  const progress = 100 // Single step now
-
-  // Check if user has already given consent
-  const checkExistingConsent = async (userEmail) => {
-    try {
-      const { data, error } = await supabase
-        .from('user_consent')
-        .select('consent_accepted, consent_date, consent_version')
-        .eq('email', userEmail)
-        .eq('consent_accepted', true)
-        .order('consent_date', { ascending: false })
-        .limit(1)
-
-      if (error) {
-        console.error('Error checking consent:', error)
-        return null
-      }
-
-      return data && data.length > 0 ? data[0] : null
-    } catch (error) {
-      console.error('Error in checkExistingConsent:', error)
-      return null
-    }
-  }
-  if (dataLoading) {
-    return (
-      <Layout title="Setting up your profile..." hideNavigation={true}>
-        <div className={styles.loadingContainer}>
-          <div className={styles.loadingContent}>
-            <div className={styles.loadingSpinner}></div>
-            <h3>Setting up your profile...</h3>
-            <p>Just a moment while we prepare everything for you</p>
-          </div>
-        </div>
-      </Layout>
-    )
-  }
-
-  if (!user) {
-    return (
-      <Layout title="Authentication Required" hideNavigation={true}>
-        <div className={styles.errorContainer}>
-          <div className={styles.errorContent}>
-            <div className={styles.errorIcon}>🔒</div>
-            <h3>Authentication Required</h3>
-            <p>Please sign in to continue setting up your profile</p>
-            <button 
-              className={styles.primaryButton}
-              onClick={() => router.push('/login')}
-            >
-              Go to Sign In
-            </button>
-          </div>
-        </div>
-      </Layout>
-    )
   }
 
   return (
-    <Layout title="Complete Your Profile - AskMe AI" hideNavigation={true}>
-      <div className={styles.container}>        {/* Header */}
+    <Layout title="Complete Your Profile - AskMe AI">
+      <div className={styles.container}>
+        
+        {/* Header */}
         <div className={styles.header}>
           <div className={styles.logo}>
-            <span className={styles.logoIcon}>🧠</span>
+            <div className={styles.logoIcon}>🧠</div>
             <span className={styles.logoText}>AskMe AI</span>
           </div>
           
           <div className={styles.progressSection}>
-            <h1 className={styles.title}>Complete Your Profile</h1>
+            <h1 className={styles.title}>
+              {currentStep === 1 && "What would you like help with?"}
+              {currentStep === 2 && "Tell us about yourself"}
+              {currentStep === 3 && "Choose your challenges"}
+              {currentStep === 4 && "Terms and Conditions"}
+            </h1>
             <p className={styles.subtitle}>
-              Tell us about yourself and what you're struggling with
+              {currentStep === 1 && "Choose your primary area of focus to get specialized guidance"}
+              {currentStep === 2 && `Focusing on ${selectedCategory?.label}`}
+              {currentStep === 3 && `Select the ${selectedCategory?.label.toLowerCase()} challenges you'd like to work on`}
+              {currentStep === 4 && "Please review and accept our terms to complete your profile"}
             </p>
+            
             <div className={styles.progressBar}>
               <div 
                 className={styles.progressFill} 
-                style={{ width: `${progress}%` }}
+                style={{ width: `${(currentStep / 4) * 100}%` }}
               ></div>
             </div>
           </div>
+        </div>
 
-          {/* Login Button for existing users */}
-          <div className={styles.headerActions}>
-            <p className={styles.existingUserText}>Already have a profile?</p>
-            <button 
-              className={styles.loginButton}
-              onClick={() => router.push('/login')}
-              type="button"
-            >
-              Sign In
-            </button>
-          </div>
-        </div><form onSubmit={handleSubmit} className={styles.form}>          {currentStep === 1 && (
-            <div className={styles.stepContainer}>
+        <div className={styles.form}>
+          <div className={styles.stepContainer}>
+            
+            {/* Step 1: Category Selection */}
+            {currentStep === 1 && (
               <div className={styles.cardsGrid}>
-                {/* Personal Information Card */}
+                {categories.map((category) => (
+                  <div
+                    key={category.id}
+                    className={styles.card}
+                    onClick={() => handleCategorySelect(category)}
+                  >
+                    <div className={styles.cardHeader}>
+                      <h3 className={styles.cardTitle}>
+                        <span className={styles.cardIcon}>
+                          {category.code === 'addiction_recovery' ? '🔄' : '🧠'}
+                        </span>
+                        {category.label}
+                      </h3>
+                      <p className={styles.cardDescription}>{category.description}</p>
+                    </div>
+                    <div className={styles.cardContent}>
+                      <button 
+                        type="button"
+                        className={`${styles.primaryButton} ${styles.categorySelectButton}`}
+                      >
+                        <span className={styles.buttonIcon}>✨</span>
+                        Get Specialized Help
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Step 2: Personal Information */}
+            {currentStep === 2 && (
+              <div className={styles.singleCard}>
                 <div className={styles.card}>
                   <div className={styles.cardHeader}>
                     <h3 className={styles.cardTitle}>
                       <span className={styles.cardIcon}>👤</span>
                       Personal Information
                     </h3>
-                  </div>                  
+                    <p className={styles.cardDescription}>
+                      Help us personalize your experience
+                    </p>
+                  </div>
+                  
                   <div className={styles.cardContent}>
-                    <div className={styles.inputGroup}>
-                      <label className={styles.label}>
-                        First Name <span className={styles.required}>*</span>
-                      </label>
-                      <div className={styles.inputWrapper}>
-                        <span className={styles.inputIcon}>👤</span>
-                        <input
-                          type="text"
-                          className={styles.input}
-                          placeholder="Enter your first name"
-                          value={form.firstName}
-                          onChange={(e) => handleInputChange('firstName', e.target.value)}
-                          required
-                        />
+                    <div className={styles.inputRow}>
+                      <div className={styles.inputGroup}>
+                        <label className={styles.label}>
+                          First Name <span className={styles.required}>*</span>
+                        </label>
+                        <div className={styles.inputWrapper}>
+                          <span className={styles.inputIcon}>👤</span>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.firstName}
+                            onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
+                            placeholder="Your first name"
+                          />
+                        </div>
                       </div>
-                    </div>                    <div className={styles.inputRow}>
+
                       <div className={styles.inputGroup}>
                         <label className={styles.label}>
                           Age <span className={styles.required}>*</span>
                         </label>
-                        <input
-                          type="number"
-                          className={styles.input}
-                          placeholder="Your age"
-                          value={form.age}
-                          onChange={(e) => handleInputChange('age', e.target.value)}
-                          min="13"
-                          max="120"
-                          required
-                        />
-                      </div>
-
-                      <div className={styles.inputGroup}>
-                        <label className={styles.label}>
-                          Sex <span className={styles.required}>*</span>
-                        </label>
-                        <select
-                          className={styles.select}
-                          value={form.sex}
-                          onChange={(e) => handleInputChange('sex', e.target.value)}
-                          required
-                        >
-                          <option value="">Select...</option>
-                          {sexOptions.map(option => (
-                            <option key={option} value={option}>{option}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className={styles.inputGroup}>
-                      <label className={styles.label}>
-                        Ethnicity <span className={styles.required}>*</span>
-                      </label>
-                      <select
-                        className={styles.select}
-                        value={form.ethnicity}
-                        onChange={(e) => handleInputChange('ethnicity', e.target.value)}
-                        required
-                      >
-                        <option value="">Select...</option>
-                        {ethnicityOptions.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className={styles.inputRow}>
-                      <div className={styles.inputGroup}>
-                        <label className={styles.label}>Country</label>
                         <div className={styles.inputWrapper}>
-                          <span className={styles.inputIcon}>🌎</span>
-                          <select
-                            className={styles.select}
-                            value={form.country}
-                            onChange={(e) => handleInputChange('country', e.target.value)}
-                          >
-                            <option value="">Select country...</option>
-                            {countries.map(country => (
-                              <option key={country} value={country}>{country}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className={styles.inputGroup}>
-                        <label className={styles.label}>City</label>
-                        <div className={styles.inputWrapper}>
-                          <span className={styles.inputIcon}>🏙️</span>
+                          <span className={styles.inputIcon}>🎂</span>
                           <input
-                            type="text"
                             className={styles.input}
-                            placeholder="Your city"
-                            value={form.city}
-                            onChange={(e) => handleInputChange('city', e.target.value)}
+                            type="number"
+                            value={formData.age}
+                            onChange={(e) => setFormData(prev => ({ ...prev, age: e.target.value }))}
+                            placeholder="Your age"
                           />
                         </div>
                       </div>
                     </div>
+
+                    <div className={styles.inputRow}>
+                      <div className={styles.inputGroup}>
+                        <label className={styles.label}>Gender</label>
+                        <select
+                          className={styles.select}
+                          value={formData.sex}
+                          onChange={(e) => setFormData(prev => ({ ...prev, sex: e.target.value }))}
+                        >
+                          <option value="">Select gender</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="non-binary">Non-binary</option>
+                          <option value="prefer-not-to-say">Prefer not to say</option>
+                        </select>
+                      </div>
+
+                      <div className={styles.inputGroup}>
+                        <label className={styles.label}>Location</label>
+                        <div className={styles.inputWrapper}>
+                          <span className={styles.inputIcon}>📍</span>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            value={formData.city}
+                            onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                            placeholder="City, State/Country"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className={styles.stepActions}>
+                      <button 
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => setCurrentStep(3)}
+                        disabled={!formData.firstName || !formData.age}
+                      >
+                        <span className={styles.buttonIcon}>➡️</span>
+                        Next: Choose Your Challenges
+                      </button>
+                    </div>
                   </div>
-                </div>                {/* Challenges Card */}
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Challenges */}
+            {currentStep === 3 && (
+              <div className={styles.singleCard}>
                 <div className={styles.card}>
                   <div className={styles.cardHeader}>
                     <h3 className={styles.cardTitle}>
-                      <span className={styles.cardIcon}>💪</span>
-                      Current Challenges
-                    </h3>                    <p className={styles.cardDescription}>
-                      <strong>What are you struggling with most right now?</strong>
+                      <span className={styles.cardIcon}>🎯</span>
+                      Your Challenges
+                    </h3>
+                    <p className={styles.cardDescription}>
+                      Select what you'd like to work on
                     </p>
                   </div>
-                    <div className={styles.cardContent}>
-                    <div className={styles.sectionGroup}>
-                      <div className={styles.chipsGrid}>
-                        {allChallenges.map(challenge => (
-                          <button
-                            key={challenge.challenge_id}
-                            type="button"
-                            className={`${styles.chip} ${form.selectedChallenges.includes(challenge.challenge_id) ? styles.chipSelected : ''}`}
-                            onClick={() => toggleChallenge(challenge.challenge_id)}
-                          >
-                            {challenge.label}
-                          </button>
-                        ))}
-                      </div>
-                        <div className={styles.coachMatchingNote}>
-                        <span className={styles.lightbulbIcon}>💡</span>
-                        <span className={styles.noteText}>
-                          Based on your selections, we'll match you with the best coach.
-                        </span>                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Terms and Conditions - Full Width */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}>
-                  <h3 className={styles.cardTitle}>
-                    <span className={styles.cardIcon}>⚖️</span>
-                    Terms & Conditions
-                  </h3>
-                </div>
-                
-                <div className={styles.cardContent}>
-                  <div className={styles.termsSection}>
-                    <div className={styles.termsCheckbox}>
-                      <label className={styles.checkboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={form.agreeToTerms}
-                          onChange={(e) => handleInputChange('agreeToTerms', e.target.checked)}
-                          className={styles.checkbox}
-                          required
-                        />
-                        <span className={styles.checkboxText}>
-                          I agree to the{' '}
-                          <button
-                            type="button"
-                            onClick={openConsentModal}
-                            className={styles.termsLink}
-                          >
-                            Terms and Conditions, Privacy Policy, and Disclaimer
-                          </button>
-                          {' '}of this wellness coaching service. <span className={styles.required}>*</span>
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div><div className={styles.stepActions}>
-                <button
-                  type="button"
-                  onClick={nextStep}
-                  className={styles.primaryButton}
-                  disabled={!form.firstName.trim() || !form.age || !form.sex || !form.ethnicity || !form.agreeToTerms || loading}
-                >
-                  {loading ? (
-                    <span className={styles.loadingContent}>
-                      <span className={styles.buttonSpinner}></span>
-                      Completing Setup...
-                    </span>
-                  ) : (
-                    <span>
-                      Complete Setup
-                      <span className={styles.buttonIcon}>✨</span>
-                    </span>
-                  )}
-                </button>
-              </div>            </div>
-          )}
-
-          {message && (
-            <div className={`${styles.message} ${message.includes('required') || message.includes('error') || message.includes('Error') ? styles.messageError : styles.messageSuccess}`}>
-              <span className={styles.messageIcon}>
-                {message.includes('required') || message.includes('error') || message.includes('Error') ? '⚠️' : 'ℹ️'}
-              </span>
-              {message}
-            </div>          )}
-        </form>
-
-        {/* Consent Modal */}
-        {showConsentModal && (
-          <div className={styles.modalOverlay} onClick={() => setShowConsentModal(false)}>
-            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-              <div className={styles.modalHeader}>
-                <h3 className={styles.modalTitle}>
-                  <span className={styles.cardIcon}>⚖️</span>
-                  Important Legal Disclaimer & Consent
-                </h3>
-                <button 
-                  className={styles.modalClose}
-                  onClick={() => setShowConsentModal(false)}
-                >
-                  ×
-                </button>
-              </div>
-              
-              <div className={styles.modalBody}>
-                <div className={styles.disclaimerSection}>
-                  <h4 className={styles.sectionTitle}>🚨 Please Read Carefully</h4>
                   
-                  <div className={styles.disclaimerBox}>
-                    <h5 className={styles.disclaimerTitle}>This is NOT Medical or Professional Therapy</h5>
-                    <p className={styles.disclaimerText}>
-                      This application provides AI-powered wellness coaching and support. It is <strong>NOT</strong> a substitute for:
-                    </p>
-                    <ul className={styles.disclaimerList}>
-                      <li>Professional medical advice, diagnosis, or treatment</li>
-                      <li>Licensed therapy or counseling services</li>
-                      <li>Crisis intervention or emergency mental health services</li>
-                      <li>Psychiatric care or medication management</li>
-                    </ul>
-                  </div>
-
-                  <div className={styles.emergencyBox}>
-                    <h5 className={styles.emergencyTitle}>🆘 In Case of Emergency</h5>
-                    <p className={styles.emergencyText}>
-                      If you are experiencing a mental health crisis, suicidal thoughts, or need immediate help:
-                    </p>
-                    <ul className={styles.emergencyList}>
-                      <li><strong>Call 911</strong> (US) or your local emergency number</li>
-                      <li><strong>Crisis Text Line:</strong> Text HOME to 741741</li>
-                      <li><strong>National Suicide Prevention Lifeline:</strong> 988</li>
-                      <li>Go to your nearest emergency room</li>
-                    </ul>
-                  </div>
-
-                  <div className={styles.limitationsBox}>
-                    <h5 className={styles.limitationsTitle}>Limitations & Responsibilities</h5>
-                    <ul className={styles.limitationsList}>
-                      <li>This AI coach cannot diagnose mental health conditions</li>
-                      <li>Advice is general and may not suit your specific situation</li>
-                      <li>You are responsible for your own decisions and actions</li>
-                      <li>We recommend consulting licensed professionals for serious concerns</li>
-                      <li>The service may have technical limitations or errors</li>
-                    </ul>
-                  </div>
-
-                  <div className={styles.consentCheckboxes}>
-                    <div className={styles.checkboxGroup}>
-                      <label className={styles.checkboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={consentForm.consentGiven}
-                          onChange={(e) => handleConsentChange('consentGiven', e.target.checked)}
-                          className={styles.checkbox}
-                        />
-                        <span className={styles.checkboxText}>
-                          <strong>I understand this is NOT medical or professional therapy.</strong> I acknowledge that this AI coaching service is for general wellness support only and cannot replace professional medical care, licensed therapy, or crisis intervention services.
-                        </span>
-                      </label>
+                  <div className={styles.cardContent}>
+                    <div className={styles.sectionGroup}>
+                      {challengesLoading ? (
+                        <div style={{ textAlign: 'center', padding: '2rem' }}>
+                          <div className={styles.buttonSpinner}></div>
+                          <p>Loading challenges...</p>
+                        </div>
+                      ) : availableChallenges.length > 0 ? (
+                        <div className={styles.chipsGrid}>
+                          {availableChallenges.map((challenge) => (
+                            <button
+                              key={challenge.challenge_id}
+                              type="button"
+                              className={`${styles.chip} ${
+                                formData.selectedChallenges.includes(challenge.challenge_id) 
+                                  ? styles.chipSelected 
+                                  : ''
+                              }`}
+                              onClick={() => handleChallengeToggle(challenge.challenge_id)}
+                            >
+                              {challenge.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ textAlign: 'center', padding: '2rem' }}>
+                          <p>No challenges available for this category yet.</p>
+                        </div>
+                      )}
                     </div>
 
-                    <div className={styles.checkboxGroup}>
-                      <label className={styles.checkboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={consentForm.understandsLimitations}
-                          onChange={(e) => handleConsentChange('understandsLimitations', e.target.checked)}
-                          className={styles.checkbox}
-                        />
-                        <span className={styles.checkboxText}>
-                          <strong>I understand the limitations and take responsibility.</strong> I acknowledge that I am responsible for my own decisions and actions. I will seek professional help for serious mental health concerns and use emergency services if needed.
-                        </span>
-                      </label>
+                    <div className={styles.stepActions}>
+                      <button 
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => setCurrentStep(2)}
+                      >
+                        <span className={styles.buttonIcon}>⬅️</span>
+                        Back
+                      </button>
+                      <button 
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => setCurrentStep(4)}
+                        disabled={formData.selectedChallenges.length === 0 || challengesLoading}
+                      >
+                        <span className={styles.buttonIcon}>➡️</span>
+                        Next: Terms & Conditions
+                      </button>
                     </div>
-
-                    <div className={styles.checkboxGroup}>
-                      <label className={styles.checkboxLabel}>
-                        <input
-                          type="checkbox"
-                          checked={consentForm.agreeToTerms}
-                          onChange={(e) => handleConsentChange('agreeToTerms', e.target.checked)}
-                          className={styles.checkbox}
-                        />
-                        <span className={styles.checkboxText}>
-                          <strong>I agree to the terms and limitations.</strong> I voluntarily choose to use this wellness coaching service with full understanding of its limitations. I will not hold the service providers liable for any decisions I make based on the AI's suggestions.
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className={styles.ageConfirmation}>
-                    <p className={styles.ageText}>
-                      <strong>Age Requirement:</strong> You must be 18 years or older to use this service. 
-                      If you are under 18, please seek guidance from a parent, guardian, or school counselor.
-                    </p>
                   </div>
                 </div>
               </div>
+            )}
 
-              <div className={styles.modalActions}>
-                <button
-                  type="button"
-                  onClick={() => setShowConsentModal(false)}
-                  className={styles.secondaryButton}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={acceptConsent}
-                  className={styles.primaryButton}
-                  disabled={!consentForm.consentGiven || !consentForm.understandsLimitations || !consentForm.agreeToTerms}
-                >
-                  I Accept All Terms
-                </button>
+            {/* Step 4: Terms and Conditions */}
+            {currentStep === 4 && (
+              <div className={styles.singleCard}>
+                <div className={styles.card}>
+                  <div className={styles.cardHeader}>
+                    <h3 className={styles.cardTitle}>
+                      <span className={styles.cardIcon}>📋</span>
+                      Terms and Conditions
+                    </h3>
+                    <p className={styles.cardDescription}>
+                      Please review and accept our terms to complete your profile
+                    </p>
+                  </div>
+                  
+                  <div className={styles.cardContent}>
+                    
+                    {/* Important Disclaimer */}
+                    <div className={styles.disclaimerSection}>
+                      <div className={styles.disclaimerBox}>
+                        <h4 style={{ color: '#dc2626', marginBottom: '1rem' }}>
+                          ⚠️ Important Medical Disclaimer
+                        </h4>
+                        <p style={{ lineHeight: '1.6', marginBottom: '0.75rem' }}>
+                          <strong>AskMe AI is for educational and wellness support purposes only.</strong> 
+                          It is not a substitute for professional medical advice, diagnosis, or treatment.
+                        </p>
+                        <p style={{ lineHeight: '1.6', marginBottom: '0.75rem' }}>
+                          If you are experiencing a mental health crisis, having thoughts of self-harm, 
+                          or need immediate medical attention, please contact emergency services immediately 
+                          or call the National Suicide Prevention Lifeline at 988.
+                        </p>
+                        <p style={{ lineHeight: '1.6', marginBottom: '0' }}>
+                          Always consult with qualified healthcare professionals for medical concerns.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Age Confirmation */}
+                    <div className={styles.ageConfirmation}>
+                      <p className={styles.ageText}>
+                        <strong>Age Verification:</strong> You have indicated that you are {formData.age} years old. 
+                        You must be at least 18 years old to use AskMe AI.
+                      </p>
+                    </div>
+
+                    {/* Consent Checkboxes */}
+                    <div className={styles.termsSection}>
+                      <div className={styles.termsCheckbox}>
+                        <input
+                          type="checkbox"
+                          id="ageConfirmation"
+                          checked={formData.ageConfirmed}
+                          onChange={(e) => handleConsentChange('ageConfirmed', e.target.checked)}
+                          className={styles.checkbox}
+                        />
+                        <label htmlFor="ageConfirmation" className={styles.checkboxText}>
+                          <strong>I confirm that I am 18 years of age or older</strong>
+                        </label>
+                      </div>
+
+                      <div className={styles.termsCheckbox}>
+                        <input
+                          type="checkbox"
+                          id="termsAccept"
+                          checked={formData.termsAccepted}
+                          onChange={(e) => handleConsentChange('termsAccepted', e.target.checked)}
+                          className={styles.checkbox}
+                        />
+                        <label htmlFor="termsAccept" className={styles.checkboxText}>
+                          I accept the <strong>Terms of Service</strong> and understand that AskMe AI 
+                          provides wellness guidance and is not a substitute for professional medical care
+                        </label>
+                      </div>
+
+                      <div className={styles.termsCheckbox}>
+                        <input
+                          type="checkbox"
+                          id="privacyAccept"
+                          checked={formData.privacyAccepted}
+                          onChange={(e) => handleConsentChange('privacyAccepted', e.target.checked)}
+                          className={styles.checkbox}
+                        />
+                        <label htmlFor="privacyAccept" className={styles.checkboxText}>
+                          I accept the <strong>Privacy Policy</strong> and consent to the processing 
+                          of my personal data for wellness coaching purposes
+                        </label>
+                      </div>
+
+                      <div className={styles.termsCheckbox}>
+                        <input
+                          type="checkbox"
+                          id="aiInteraction"
+                          checked={formData.aiInteractionAcknowledged}
+                          onChange={(e) => handleConsentChange('aiInteractionAcknowledged', e.target.checked)}
+                          className={styles.checkbox}
+                        />
+                        <label htmlFor="aiInteraction" className={styles.checkboxText}>
+                          I acknowledge that I am interacting with an AI 🤖 and that all information 
+                          and suggestions are for informational purposes only
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className={styles.stepActions}>
+                      <button 
+                        type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => setCurrentStep(3)}
+                      >
+                        <span className={styles.buttonIcon}>⬅️</span>
+                        Back
+                      </button>
+                      <button 
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={handleSubmit}
+                        disabled={loading || !formData.termsAccepted || !formData.privacyAccepted || !formData.ageConfirmed || !formData.aiInteractionAcknowledged}
+                      >
+                        {loading ? (
+                          <div className={styles.loadingContent}>
+                            <div className={styles.buttonSpinner}></div>
+                            Setting Up Profile...
+                          </div>
+                        ) : (
+                          <>
+                            <span className={styles.buttonIcon}>✨</span>
+                            Complete Profile Setup
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+
           </div>
-        )}
+        </div>
       </div>
     </Layout>
   )

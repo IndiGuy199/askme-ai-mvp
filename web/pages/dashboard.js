@@ -34,12 +34,15 @@ export default function Dashboard() {
   const [actionCompletions, setActionCompletions] = useState([])
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [actionToDelete, setActionToDelete] = useState(null)
+  const [userCategory, setUserCategory] = useState(null) // Add category context to dashboard
   const router = useRouter()
+  
   // Toast notification function
   const showToast = (message, type = 'success') => {
     setToast({ show: true, message, type })
     setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 3000)
   }
+  
   useEffect(() => {
     let mounted = true
     
@@ -1075,6 +1078,32 @@ Make the goals:
     return 0
   }
 
+  useEffect(() => {
+    let mounted = true
+    
+    // Load user's primary category
+    const loadUserCategory = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('primary_category')
+          .eq('email', user.email)
+          .single()
+
+        if (error) throw error
+        setUserCategory(data?.primary_category)
+      } catch (error) {
+        console.error('Error loading user category:', error)
+      }
+    }
+    
+    if (user?.email) {
+      loadUserCategory()
+    }
+    
+    return () => { mounted = false }
+  }, [user])
+  
   if (loading) {
     return (
       <Layout title="Dashboard">
