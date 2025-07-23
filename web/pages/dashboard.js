@@ -422,75 +422,42 @@ export default function Dashboard() {
   }
     const generateSuggestedAction = async (goalId, goalLabel) => {
     setSuggestingGoal(goalId)
-    
+
     try {
-      // Generate AI suggestion using OpenAI
-      const prompt = `As a wellness coach, suggest one specific, actionable step for someone working on "${goalLabel}".
-      
-The suggestion should be:
-- Concrete and doable today or this week
-- Specific and measurable
-- Motivating but achievable
-
-User context:
-- Communication style: ${userData.tone || 'balanced'}
-- Goal: ${goalLabel}
-
-Respond with just the action suggestion (1-2 sentences, max 100 characters).`
-
-      const response = await fetch('/api/gptRouter', {
+      // Use dedicated generate-goals endpoint for action suggestions
+      const response = await fetch('/api/generate-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: user.email,
-          message: prompt,
-          includeMemory: false
+          type: 'action',
+          context: {
+            goalLabel: goalLabel,
+            userTone: userData.tone || 'balanced'
+          }
         })
       })
 
       const data = await response.json()
       
-      if (response.ok && data.response) {
-        // Check if there's already a suggested action for this goal
-        const existingSuggestion = getSuggestedActionForGoal(goalId)
-        
-        if (existingSuggestion) {
-          // Update the existing suggestion with the new action
-          const { error } = await supabase
-            .from('action_plans')
-            .update({
-              action_text: data.response.trim(),
-              created_at: new Date().toISOString()
-            })
-            .eq('id', existingSuggestion.id)
+      if (response.ok && data.action) {
+        const { error } = await supabase
+          .from('action_plans')
+          .insert({
+            user_id: userData.id,
+            goal_id: goalId,
+            action_text: data.action.trim(),
+            is_complete: false,
+            status: 'suggested',
+            created_at: new Date().toISOString()
+          })
 
-          if (!error) {
-            await fetchActionPlans(userData.id)
-            showToast('New action suggestion generated! 💡', 'success')
-          } else {
-            console.error('Error updating suggested action:', error)
-            showToast('Failed to update action suggestion', 'error')
-          }
+        if (!error) {
+          await fetchActionPlans(userData.id)
+          showToast('Action suggestion generated! 💡', 'success')
         } else {
-          // Create a new suggested action
-          const { error } = await supabase
-            .from('action_plans')
-            .insert({
-              user_id: userData.id,
-              goal_id: goalId,
-              action_text: data.response.trim(),
-              is_complete: false,
-              status: 'suggested', // Add status to distinguish from accepted actions
-              created_at: new Date().toISOString()
-            })
-
-          if (!error) {
-            await fetchActionPlans(userData.id)
-            showToast('Action suggestion generated! 💡', 'success')
-          } else {
-            console.error('Error saving suggested action:', error)
-            showToast('Failed to save action suggestion', 'error')
-          }
+          console.error('Error saving suggested action:', error)
+          showToast('Failed to save action suggestion', 'error')
         }
       } else {
         console.error('Failed to generate action suggestion:', data)
@@ -941,7 +908,8 @@ Respond with just the action suggestion (1-2 sentences, max 100 characters).`
     setLoadingSuggestions(true)
     setAiSuggestedGoals([])
 
-    try {      // Find the challenge details
+    try {
+      // Find the challenge details
       const challenge = challengesWithGoals.find(c => c.coach_challenges.challenge_id === challengeId)?.coach_challenges
       
       if (!challenge) {
@@ -949,69 +917,44 @@ Respond with just the action suggestion (1-2 sentences, max 100 characters).`
         return
       }
 
-      const prompt = `As a wellness coach, suggest 4 specific, actionable goals for someone working on "${challenge.label}".
+      console.log('Generating AI-suggested goals for challenge:', challenge.label)
 
-Challenge context: ${challenge.description}
-
-User context:
-- Communication style: ${userData?.tone || 'balanced'}
-- First name: ${userData?.first_name || 'User'}
-- Any preferences: ${userData?.preferences || 'No specific preferences listed'}
-
-For each goal, provide:
-1. A clear, specific goal title (max 50 characters)
-2. A brief description of what this goal involves (max 100 characters)
-
-Format your response as a JSON array with objects containing "title" and "description" fields.
-
-Example format:
-[
-  {"title": "Walk 20 minutes daily", "description": "Take a brisk 20-minute walk every day to boost energy and mood"},
-  {"title": "Practice deep breathing", "description": "Spend 5 minutes doing deep breathing exercises when feeling stressed"}
-]
-
-Make the goals:
-- Specific and measurable
-- Achievable for beginners
-- Directly related to overcoming "${challenge.label}"
-- Personalized to the user's communication style`
-
-      const response = await fetch('/api/gptRouter', {
+      // Use dedicated goals generation endpoint
+      const response = await fetch('/api/generate-goals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: user.email,
-          message: prompt,
-          includeMemory: false
+          type: 'goals',
+          context: `Challenge: ${challenge.label} - ${challenge.description}`
         })
       })
 
       const data = await response.json()
-      
-      if (response.ok && data.response) {
-        try {
-          // Clean the response to extract JSON
-          let jsonString = data.response.trim()
+      console.log('AI goals generation response:', data)
+
+      if (response.ok && data.goals) {
+        // Validate that we received an array of goals
+        if (Array.isArray(data.goals) && data.goals.length > 0) {
+          // Validate each goal has required fields
+          const validGoals = data.goals.filter(goal => 
+            goal && typeof goal === 'object' && goal.title && goal.description
+          )
           
-          // Remove any markdown formatting
-          jsonString = jsonString.replace(/```json\n?/g, '').replace(/```\n?/g, '')
-          
-          // Parse the JSON
-          const suggestedGoals = JSON.parse(jsonString)
-          
-          if (Array.isArray(suggestedGoals) && suggestedGoals.length > 0) {
-            setAiSuggestedGoals(suggestedGoals)
+          if (validGoals.length > 0) {
+            setAiSuggestedGoals(validGoals)
+            showToast(`Generated ${validGoals.length} AI-suggested goals! 🤖`, 'success')
           } else {
-            console.error('Invalid suggestions format:', suggestedGoals)
-            showToast('Failed to generate goal suggestions', 'error')
+            console.error('No valid goals in response:', data.goals)
+            showToast('Generated goals were not in the expected format', 'error')
           }
-        } catch (parseError) {
-          console.error('Error parsing AI suggestions:', parseError, data.response)
-          showToast('Failed to parse goal suggestions', 'error')
+        } else {
+          console.error('Goals response is not a valid array:', data.goals)
+          showToast('Failed to generate valid goal suggestions', 'error')
         }
       } else {
-        console.error('Error from AI:', data)
-        showToast('Failed to generate goal suggestions', 'error')
+        console.error('Error from goals API:', data)
+        showToast(data.error || 'Failed to generate goal suggestions', 'error')
       }
     } catch (error) {
       console.error('Error generating AI suggestions:', error)
@@ -1104,6 +1047,27 @@ Make the goals:
     return () => { mounted = false }
   }, [user])
   
+  useEffect(() => {
+    if (!user || !user.email) return;
+    const fetchData = async () => {
+      await fetchChallengesWithGoals(user.email);
+      // ...other fetches...
+    };
+    fetchData();
+  }, [user]);
+
+  // Expand challenges with goals by default
+  useEffect(() => {
+    if (challengesWithGoals.length > 0) {
+      const expanded = new Set(
+        challengesWithGoals
+          .filter(c => c.goals && c.goals.length > 0)
+          .map(c => c.coach_challenges.challenge_id)
+      );
+      setExpandedChallenges(expanded);
+    }
+  }, [challengesWithGoals]);
+
   if (loading) {
     return (
       <Layout title="Dashboard">

@@ -1,5 +1,7 @@
+// gptRouter.js - Main API handler for AskMe AI chat system
+
+const { OpenAI } = require('openai');
 const { createClient } = require('@supabase/supabase-js')
-const OpenAI = require('openai')
 const { encoding_for_model } = require('tiktoken')
 const crypto = require('crypto')
 
@@ -536,52 +538,134 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
       // Continue without profile - we'll create one below
     }
     
-    if (!messages || messages.length < 2) {
-      console.log('Not enough new messages for meaningful summary update');
+    // --- ENHANCED CONTEXT RESTORATION & SUMMARY UPDATE LOGIC ---
+    if (!messages || messages.length < 6) {
+      console.log('Not enough recent messages for meaningful summary update (need at least 6)');
       try {
         const memoryLogger = require('../../lib/memoryLogger');
-        memoryLogger.logMemoryEvent(user_id, userData?.email, 'INSUFFICIENT_NEW_MESSAGES', 
-          { messageCount: messages?.length || 0, minimumRequired: 2 });
+        memoryLogger.logMemoryEvent(user_id, userData?.email, 'INSUFFICIENT_RECENT_MESSAGES', 
+          { messageCount: messages?.length || 0, minimumRequired: 6 });
       } catch (logErr) {
         console.error('Error logging insufficient messages:', logErr);
       }
-      return currentSummary; // Return existing summary if no new content
-    }// Improved approach: Focus on most recent meaningful conversation
-    // Get last 10-12 messages but prioritize user messages and longer responses
+      // Fallback: do NOT overwrite previous summary, return previous summary
+      return currentSummary; // Prevent summary overwrite if not enough context
+    }
+
+    // Improved approach: Focus on most recent meaningful conversation
+    // Get last 12 messages but prioritize user messages and substantial assistant responses
     const recentMessages = messages
-      .slice(-12) // Get last 12 messages for context
-      .filter(m => {
-        // Keep all user messages and substantial assistant responses
-        return m.role === 'user' || 
-               (m.role === 'assistant' && m.content.length > 50);
-      })
-      .slice(-8); // Keep up to 8 filtered messages for context
-    
+      .slice(-12)
+      .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content.length > 50))
+      .slice(-8);
+
+    // Always include most recent user topics, even if last few messages are short
+    let recentTopics = [];
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      const msg = recentMessages[i];
+      if (msg.role === 'user' && msg.content.length > 10) {
+        // Extract topic keywords (simple heuristic)
+        const topicMatch = msg.content.match(/(motivation|anxiety|stress|sleep|work|relationship|goal|challenge|problem|issue|breakthrough|decision|habit|routine|energy|focus|confidence|fear|worry|sadness|anger|frustration|hope|change|progress|improvement|solution|plan|strategy)/i);
+        if (topicMatch) {
+          recentTopics.push(topicMatch[0].toLowerCase());
+        }
+      }
+      if (recentTopics.length >= 2) break; // Only need last 2 topics
+    }
+    recentTopics = [...new Set(recentTopics)]; // Deduplicate
+
     const recentConversation = recentMessages
       .map(m => {
         // Truncate very long messages but keep important context
-        const content = m.content.length > 500 ? 
-          m.content.substring(0, 500) + "..." : 
-          m.content;
+        const content = m.content.length > 500 ? m.content.substring(0, 500) + "..." : m.content;
         return `${m.role}: ${content}`;
       })
       .join('\n\n');
 
-    const updatePrompt = `EXISTING SUMMARY:
-${currentSummary || 'No previous summary - this is the first summary for this user.'}
+    // Build updatePrompt string correctly
+    // ...existing code...
+    // --- ENHANCED MEMORY SUMMARY LOGIC ---
 
-RECENT CONVERSATION:
-${recentConversation}
+    // --- Helper functions for richer extraction ---
+    function extractTopics(messages) {
+      const topicKeywords = [
+        'anxiety','depression','work','stress','sleep','family','relationship','health','coping','boundaries','therapy','improvement','night','day','emotion','hopeless','frustration','advice','goal','challenge','motivation','energy','focus','confidence','fear','anger','sadness','support','routine','habit','exercise','diet','nutrition','self-care','relaxation','overwhelm','burnout','productivity','rest','meditation','mindfulness','gratitude','journaling','reflection','change','transition','loss','grief','achievement','success','failure','conflict','communication','trust','growth','learning','acceptance','forgiveness','regret','resentment','hope','optimism','pessimism','worry','panic','isolation','loneliness','connection','friendship','parenting','children','partner','spouse','divorce','breakup','dating','social','money','finance','career','job','school','education','bullying','trauma','abuse','addiction','recovery','healing','diagnosis','treatment','medication','doctor','hospital','appointment','symptom','pain','fatigue','illness','injury','disability','accommodation','goal','challenge'
+      ];
+      const found = new Set();
+      messages.forEach(msg => {
+        topicKeywords.forEach(keyword => {
+          if (msg.content && msg.content.toLowerCase().includes(keyword)) found.add(keyword);
+        });
+      });
+      return Array.from(found);
+    }
 
-${promptConfig.memory.updateSummary}`;
+    function extractActions(messages) {
+      // Look for verbs/actions/decisions
+      const actionPatterns = /(tried|did|started|set|used|implemented|changed|avoided|talked|shared|asked|expressed|decided|focused|coping|breathed|journaled|slept|vented|set boundaries|took a break|reached out|planned|scheduled|committed|reflected|meditated|practiced|wrote|read|listened|watched|called|messaged|emailed|visited|joined|left|quit|resumed|completed|achieved|failed|attempted|considered|explored|researched|learned|applied|adapted|adjusted|reported|noticed|felt|experienced|observed|identified|recognized|adopted|discarded|maintained|improved|progressed|regressed|relapsed|overcame|struggled|persisted|persevered|gave up|kept going|followed|ignored|accepted|rejected|embraced|let go|held on|supported|helped|encouraged|motivated|inspired|comforted|soothed|calmed|relaxed|energized|activated|deactivated)/i;
+      return messages.filter(msg => actionPatterns.test(msg.content)).map(msg => msg.content);
+    }
+
+    function extractBreakthroughs(messages) {
+      // Look for breakthrough/insight patterns
+      return messages.filter(msg => /improved|breakthrough|felt better|new insight|aha|realization|major progress|finally understand|clarity|epiphany|life-changing|reported improvement|big change|success|achievement|overcame|resolved|solved|figured out|understood|got it|made sense|breakthrough moment|milestone|step forward|positive change|turning point/i.test(msg.content)).map(msg => msg.content);
+    }
+
+    function extractRecurringIssues(messages) {
+      // Find repeated topics/issues
+      const issues = {};
+      messages.forEach(msg => {
+        const topicMatch = msg.content.match(/anxiety|depression|sleep|work|stress|family|relationship|hopeless|frustration|challenge|goal|emotion|night|day|pain|fatigue|worry|fear|anger|sadness|conflict|communication|isolation|loneliness|burnout|overwhelm|addiction|trauma|abuse|symptom|illness|diagnosis|treatment|medication|doctor|hospital|appointment|failure|regret|resentment|money|finance|career|job|school|bullying|loss|grief|breakup|divorce|children|parenting|partner|spouse|dating|social/i);
+        if (topicMatch && topicMatch[0]) {
+          const topic = topicMatch[0];
+          issues[topic] = (issues[topic] || 0) + 1;
+        }
+      });
+      // Only return issues that appear more than twice
+      return Object.entries(issues).filter(([_, count]) => count > 2).map(([topic]) => topic);
+    }
+
+    function buildMemorySummary(messages, previousSummary) {
+      // Extract topics, actions, breakthroughs, recurring issues
+      const topics = extractTopics(messages);
+      const actions = extractActions(messages);
+      const breakthroughs = extractBreakthroughs(messages);
+      const recurring = extractRecurringIssues(messages);
+      return [
+        previousSummary ? previousSummary : '',
+        topics.length ? `Recent topics: ${topics.join(', ')}` : '',
+        actions.length ? `User actions: ${actions.join('; ')}` : '',
+        breakthroughs.length ? `Breakthroughs: ${breakthroughs.join('; ')}` : '',
+        recurring.length ? `Recurring issues: ${recurring.join('; ')}` : ''
+      ].filter(Boolean).join('\n');
+    }
+
+    // --- Hierarchical memory structure stub (for future use) ---
+    function getHierarchicalMemory(userId) {
+      // Example structure, actual implementation would query DB and compress context
+      return {
+        immediate: getLastNMessages(userId, 3),
+        recent: getLastNMessages(userId, 10), // Could be compressed context
+        session: null, // getSessionSummary(userId) - to implement
+        longTerm: null // getPersonalitySummary(userId) - to implement
+      };
+    }
+
+    // Build enhanced summary
+    let enhancedSummary = buildMemorySummary(recentMessages, currentSummary);
+    // If summary exists, inject recent topics
+    if (enhancedSummary && recentTopics.length > 0) {
+      enhancedSummary += `\n\nRecent topics: ${recentTopics.join(', ')}`;
+    }
+    const updatePrompt = `EXISTING SUMMARY:\n${currentSummary || 'No previous summary - this is the first summary for this user.'}\n\nRECENT CONVERSATION:\n${recentConversation}\n\nINSTRUCTION: Summarize only the relevant information from the user's recent chat interactions. Do NOT include user goals or challenges. Keep the summary concise (max 250 words) and focused only on the user's conversational context, emotional state, key topics discussed, user actions/decisions, breakthroughs, and recurring issues.\n\nENHANCED SUMMARY:\n${enhancedSummary}`;
       console.log(`Updating memory summary for user ${user_id} (${sessionEnd ? 'session end' : 'periodic update'})`);
     console.log(`Existing summary length: ${currentSummary?.length || 0} chars`);
     console.log(`Recent conversation: ${recentMessages.length} filtered messages from ${messages.length} total`);
     
     try {      console.log('Calling OpenAI API for memory summary update...');      const summaryRes = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4-turbo',
         messages: [{ role: 'user', content: updatePrompt }],
-        max_tokens: 320, // Slightly more for better summaries
+        max_tokens: 500, // Slightly more for better summaries
         temperature: 0.3 // Lower temperature for more consistent summaries
       });
         let summary = summaryRes.choices[0]?.message?.content || '';
@@ -901,7 +985,53 @@ ${promptConfig.memory.updateSummary}`;
     
     // Simple if either very short message or contains simple patterns, with reasonable context size
     return (isShortMsg || hasSimplePatterns || isFollowUp) && !hasComplexPattern && !hasQuestionPattern && context_size < 1500;
-  }// Main algorithm: Get prompt and model with caching and token optimization
+  }
+
+  // 🎯 INTENT-BASED STYLE & FORMAT MAPPING SYSTEM
+  // Maps user intent to preferred communication style and coaching format
+  const intentStyleFormatMap = {
+    'FRUSTRATED':        { communication_style: 'direct',   coaching_format: 'concise'  },
+    'MEDICAL_URGENCY':   { communication_style: 'direct',   coaching_format: 'concise'  },
+    'ADVICE_REQUEST':    { communication_style: 'step-by-step',  coaching_format: 'detailed'    },
+    'REPEAT_ADVICE_REQUEST': { communication_style: 'direct', coaching_format: 'concise'},
+    'FOLLOW_UP_ADVICE':  { communication_style: 'step-by-step',  coaching_format: 'detailed'  },
+    'META_CONVERSATION': { communication_style: 'gentle-encouraging', coaching_format: 'conversational' },
+    'EMOTIONAL_SHARING': { communication_style: 'gentle-encouraging',   coaching_format: 'conversational'},
+    'SIMPLE_EMOTIONAL_SHARING': { communication_style: 'gentle-encouraging', coaching_format: 'conversational'},
+    'EXPLORATION_PREFERENCE': { communication_style: 'gentle-encouraging', coaching_format: 'conversational'},
+    'ADVICE_FOCUSED':    { communication_style: 'step-by-step', coaching_format: 'detailed'  },
+    'GENERAL_CONVERSATION': { communication_style: 'gentle-encouraging', coaching_format: 'conversational' },
+    'DIAGNOSTIC_REQUEST': { communication_style: 'step-by-step', coaching_format: 'detailed' },
+    'FOLLOW_UP_ADVICE_REQUEST': { communication_style: 'step-by-step', coaching_format: 'detailed' },
+    'CONTEXT_SHARING': { communication_style: 'gentle-encouraging', coaching_format: 'conversational' },
+    'EMOTIONAL_SHARING_WITH_VALIDATION': { communication_style: 'gentle-encouraging', coaching_format: 'conversational' },
+    'BOUNDARY_RESPECT': { communication_style: 'gentle-encouraging', coaching_format: 'conversational' },
+    'ADVICE_REJECTION': { communication_style: 'gentle-encouraging', coaching_format: 'detailed' },
+    'FALLBACK_REQUEST': { communication_style: 'step-by-step', coaching_format: 'detailed' },
+    'CHOICE_REQUEST': { communication_style: 'step-by-step', coaching_format: 'detailed' },
+    'DIRECT_ADVICE_REQUEST': { communication_style: 'direct', coaching_format: 'concise' }
+    // ...extend as needed
+  };
+
+  // Selector function to get style and format for a given intent
+  function getStyleAndFormatForIntent(userIntent) {
+    const defaultStyle = 'gentle-encouraging';
+    const defaultFormat = 'conversational';
+    
+    const mapping = intentStyleFormatMap[userIntent];
+    if (mapping) {
+      console.log(`🎯 Intent mapping: ${userIntent} -> style: ${mapping.communication_style}, format: ${mapping.coaching_format}`);
+      return mapping;
+    }
+    
+    console.log(`🎯 Intent mapping: ${userIntent} -> using defaults (style: ${defaultStyle}, format: ${defaultFormat})`);
+    return { 
+      communication_style: defaultStyle, 
+      coaching_format: defaultFormat 
+    };
+  }
+
+  // Main algorithm: Get prompt and model with caching and token optimization
   async function getPromptAndModel(user_id, user_message, profile, chat_history, is_first_message = false, is_init_message = false) {
     // 1. Extract data more efficiently
     const context = profile?.onboarding_context || '';
@@ -913,9 +1043,12 @@ ${promptConfig.memory.updateSummary}`;
     // Calculate context size for model selection
     const contextSize = (memory_summary?.length || 0) + (context?.length || 0);
   
-    // 🎯 DETECT USER INTENT - with proper error handling
-    const userIntent = detectUserIntent(user_message, chat_history || [], null);
-    console.log(`🎯 Detected intent: ${userIntent} for message: "${user_message}"`);
+    // 🎯 MUTUALLY EXCLUSIVE, HIERARCHICAL INTENT RESOLVER
+    // Issue detection removed from prompt construction. Only style guidelines and context will be injected.
+
+    // --- Detect user intent early to avoid ReferenceError ---
+    const userIntent = detectUserIntent(user_message, chat_history || []);
+    console.log('🧠 Detected userIntent:', userIntent);
 
     // Update conversation state
     let conversationState = null;
@@ -928,10 +1061,10 @@ ${promptConfig.memory.updateSummary}`;
     }
 
     // 2. Model selection - more token-efficient strategy
-    let model = 'gpt-3.5-turbo';
+    let model = 'gpt-4-turbo'; // Always use GPT-4-turbo for chat
     
     if (is_init_message) {
-      model = memory_summary?.length > 100 ? 'gpt-3.5-turbo' : 'gpt-4-turbo';
+      model = memory_summary?.length > 100 ? 'gpt-4-turbo' : 'gpt-4-turbo';
     } else if (is_first_message && (!hasGoals && !hasChallenges)) {
       model = 'gpt-4-turbo';
     } else if (!isSimpleRequest(user_message, contextSize)) {
@@ -940,16 +1073,14 @@ ${promptConfig.memory.updateSummary}`;
 
     // 3. ENHANCED SYSTEM PROMPT SELECTION WITH INTENT MODIFICATION
     let system_prompt = '';
-    
+    let coachPrompts = null;
     try {
-      // Get base prompt using existing logic
       if (profile?.coach_profile?.system_prompt) {
-        const coachPrompts = {
+        coachPrompts = {
           full: profile.coach_profile.system_prompt,
           medium: profile.coach_profile.medium_prompt || profile.coach_profile.system_prompt,
           short: profile.coach_profile.short_prompt || profile.coach_profile.system_prompt
         };
-
         if (is_init_message) {
           system_prompt = coachPrompts.full + ` Greet ${firstName} warmly by name.`;
         } else {
@@ -963,39 +1094,58 @@ ${promptConfig.memory.updateSummary}`;
         if (is_init_message) {
           system_prompt = (promptConfig.system.init || '').replace(/\{\{firstName\}\}/g, firstName || 'user');
         } else {
-          const messageCount = chat_history?.length || 0;
-          const hasMemory = Boolean(memory_summary && memory_summary.length > 10);
-          const isNewTopic = determineIfNewTopic(user_message, chat_history || []);
-          system_prompt = promptStrategy.getSystemPrompt(messageCount, hasMemory, isNewTopic, promptConfig.system);
+          system_prompt = promptConfig.system.full;
         }
       }
-      
-      // 🎯 MODIFY PROMPT BASED ON INTENT (This is the key addition)
-      system_prompt = addIntentModifier(system_prompt, userIntent, conversationState);
-      
+       // 🎯 INJECT INTENT MODIFIER HERE
+       system_prompt = addIntentModifier(system_prompt, userIntent, conversationState);
+ 
+
+      // 🎯 MODIFY PROMPT BASED ON INTENT (Therapeutic test adaptation)
+  //
+     // system_prompt += `\nSTYLE GUIDELINES:\n- Every response must be at least 5 sentences unless the user specifically requests brevity.\n- Always respond in at least two paragraphs, with a minimum of 120 words unless brevity is requested.\n- For dilemmas or emotional topics, provide at least one example, analogy, or metaphor to deepen understanding.\n- Reflect on possible underlying causes or patterns.\n- Avoid generic advice, platitudes, or simply restating the user's words.\n- Do not end with a question unless the user requests advice.\n- For dilemmas, break down the situation into perspectives, pros/cons, and possible next steps.\n- Keep tone warm, validating, and grounded.\n- Blend clinical insight with motivational language.\n- Gently challenge distorted thinking 🧭, never force or cheerlead.\n- Keep focus on internal safety 🔐, long-term healing 🛡️, and values-based decisions.\n- Frequently mirror the user's stated values back to them 🪞 to reinforce clarity.\n- Use emojis 🧭🔐🛡️🪞 sparingly to reinforce insights.\n- Only use bullet points or numbered lists when it improves clarity.\n- Offer both emotional validation and cognitive structure in every response.\n`;
     } catch (error) {
       console.error('Error selecting prompt:', error);
       system_prompt = promptConfig.system.full;
-    }    // Ensure we have a valid system prompt
+    }
     if (!system_prompt) {
       console.warn('No system prompt selected, using default');
       system_prompt = promptConfig.system.full;
     }
 
-    // Apply user communication preferences to the system prompt
-    if (profile?.communication_style || profile?.coaching_format) {
-      system_prompt = promptStrategy.customizePromptForPreferences(
-        system_prompt, 
-        profile.communication_style, 
-        profile.coaching_format
-      );
-      console.log('Applied user communication preferences to system prompt');
-    }
+    // 3.1. Select style/format based on intent, allowing user profile to override
+    const intentMapping = getStyleAndFormatForIntent(userIntent);
+    const finalStyle = profile?.communication_style || intentMapping.communication_style;
+    const finalFormat = profile?.coaching_format || intentMapping.coaching_format;
+
+    // Apply style/format to system prompt
+    system_prompt = promptStrategy.customizePromptForPreferences(
+      system_prompt,
+      finalStyle,
+      finalFormat
+    );
+    console.log('Applied style/format to system prompt:', { finalStyle, finalFormat });
 
     // 4. Prompt construction with context
     const prompt = [
       { role: "system", content: system_prompt }
     ];
+
+    // Add memory summary as a system message if it exists and is recent
+    if (profile?.last_memory_summary && profile.last_memory_summary.length > 20) {
+      prompt.push({
+        role: "system",
+        content: `Here is a summary of the user's recent context and history:\n${profile.last_memory_summary}`
+      });
+      // Optionally add recent breakthroughs or emotional state if detected
+      if (profile.last_memory_summary.match(/breakthrough|insight|epiphany|clarity|realization/)) {
+        prompt.push({
+          role: "system",
+          content: "Recent breakthroughs detected. Maintain a reflective, supportive tone."
+        });
+      }
+      console.log('Added memory summary to prompt for better context.');
+    }
 
     let context_message = '';
     
@@ -1060,32 +1210,63 @@ ${promptConfig.memory.updateSummary}`;
     // Add chat history - ULTRA-OPTIMIZED: very aggressive limits for maximum token efficiency
     const safe_chat_history = Array.isArray(chat_history) ? chat_history : [];
     let messagesAdded = 0;
-    const maxMessages = is_first_message ? 1 : (memory_summary ? 2 : 3); // ULTRA-REDUCED from 4:6:8
+    // Reduce chat history for emotional/support queries
+    const maxMessages = (userIntent === 'EMOTIONAL_SHARING_WITH_VALIDATION') ? 2 : (is_first_message ? 1 : 6); // Increased from 3 to 6
     
-    console.log('Chat history being added to prompt (ULTRA-OPTIMIZED):', {
+    console.log('Chat history being added to prompt (IMPROVED):', {
       historyLength: safe_chat_history.length,
       maxMessages: maxMessages,
       memoryExists: Boolean(memory_summary),
-      tokenSavings: 'Reduced from 8-10 to 1-3 messages'
     });
     
-    for (const msg of safe_chat_history) {
-      if (!msg?.role || !msg?.content) continue;
-      
-      // More aggressive truncation for maximum token efficiency
-      if (msg.content.length > 200) {
-        prompt.push({ role: msg.role, content: msg.content.substring(0, 150) + "... [truncated]" }); // ULTRA-REDUCED from 300 to 150
-      } else {
-        prompt.push({ role: msg.role, content: msg.content });
+    // 2 & 3. Prioritize substantial & relevant messages, less aggressive truncation
+    const substantialMessages = safe_chat_history.filter(isSubstantialMessage);
+    const relevantMessages = safe_chat_history.filter(msg => isRelevantToCurrent(msg, user_message));
+    const selectedMessages = [
+      ...substantialMessages.slice(-maxMessages), // last N substantial
+      ...relevantMessages.slice(-2) // up to 2 relevant older messages
+    ];
+
+    // Deduplicate and keep order
+    let contextMessages = [];
+    const seen = new Set();
+    for (const msg of selectedMessages) {
+      const key = `${msg.role}:${msg.content}`;
+      if (!seen.has(key)) {
+        contextMessages.push(msg);
+        seen.add(key);
       }
-      messagesAdded++;
-      if (messagesAdded >= maxMessages) break;
     }
-    
-    console.log('Chat history added to prompt:', {
-      messagesAdded: messagesAdded,
-      totalPromptLength: prompt.length
-    });
+    // Fallback if contextMessages is empty
+    if (contextMessages.length === 0 && Array.isArray(chat_history)) {
+      contextMessages = chat_history.slice(-maxMessages);
+    }
+
+    // Now safely summarize
+    if (contextMessages && Array.isArray(contextMessages)) {
+      const summarizedMessages = contextMessages.slice(-maxMessages).map(msg => ({
+        role: msg.role,
+        content: `[Summary] ${summarizeMessage(msg)}`
+      }));
+
+      summarizedMessages.forEach(msg => {
+        console.log(`[SUMMARY TEST] Role: ${msg.role}, Full summarized content: ${msg.content}`);
+      });
+
+      for (const msg of summarizedMessages) {
+        prompt.push({ role: msg.role, content: msg.content });
+        messagesAdded++;
+      }
+    }
+
+    // 4. Always include memory summary
+    if (profile?.last_memory_summary && profile.last_memory_summary.length > 10) {
+      prompt.unshift({
+        role: "system",
+        content: `Here is a summary of the user's recent context and history:\n${profile.last_memory_summary}`
+      });
+      console.log('Memory summary injected into prompt for continuity.');
+    }
 
     // Add current user message
     if (user_message) {
@@ -1097,6 +1278,8 @@ ${promptConfig.memory.updateSummary}`;
       systemPromptPreview: prompt[0].content.substring(0, 100) + '...',
       coachSpecific: Boolean(profile?.coach_profile?.system_prompt)
     });
+    //log the complete system prompt
+    console.log('Complete system prompt::::', system_prompt);
 
     // Add goal debugging
     console.log('Goal debugging:', {
@@ -1107,7 +1290,32 @@ ${promptConfig.memory.updateSummary}`;
       contextIncludesGoals: context_message.includes('GOALS')
     });
 
-    return { model, prompt };
+    // Replace this block:
+    // const summarizedMessages = contextMessages.slice(-maxMessages).map(msg => ({
+    //   role: msg.role,
+    //   content: `[Summary] ${summarizeMessage(msg)}`
+    // }));
+
+    // with this, inside getPromptAndModel after contextMessages is defined:
+    if (contextMessages && Array.isArray(contextMessages)) {
+      const summarizedMessages = contextMessages.slice(-maxMessages).map(msg => ({
+        role: msg.role,
+        content: `[Summary] ${summarizeMessage(msg)}`
+      }));
+
+      // Log each summarized message for testing
+      summarizedMessages.forEach(msg => {
+        console.log(`[SUMMARY TEST] Role: ${msg.role}, Full summarized content: ${msg.content}`);
+      });
+
+      // Add summarized messages to prompt instead of full/truncated messages
+      for (const msg of summarizedMessages) {
+        prompt.push(msg);
+        messagesAdded++;
+      }
+    }
+
+    return { model, prompt }; // The function should now only return model and prompt
   }  // Handle GET requests for user data
   if (req.method === 'GET') {
     const { email, action } = req.query
@@ -1242,11 +1450,15 @@ ${promptConfig.memory.updateSummary}`;
     }
   }  // Handle POST requests for chat
   if (req.method === 'POST') {
+    console.log('🔥🔥🔥 POST REQUEST HANDLER EXECUTING WITH NEW CODE! 🔥🔥🔥');
+    console.log('⭐⭐⭐ VERIFICATION: THIS IS THE UPDATED FILE! ⭐⭐⭐');
+    console.log('⭐⭐⭐ TIMESTAMP:', new Date().toISOString(), '⭐⭐⭐');
     try {
       const { email, message, messages, isFirstMessage, isContextRestore } = req.body;
       if (!email || !message) return res.status(400).send('Missing email or message');
 
       console.log('=== CHAT REQUEST START ===');
+      console.log('🚨 TESTING CODE CHANGES ARE BEING PICKED UP 🚨');
       console.log('Email:', email);
       console.log('Message:', message);
       console.log('Is explicit first message:', isFirstMessage === true);
@@ -1310,16 +1522,15 @@ ${promptConfig.memory.updateSummary}`;
       console.log('User coach profile:', user.coach_profiles?.code);
       console.log('User first name:', user.first_name);
 
-      // Special handling for initialization message
       let actualMessage = message;
       let is_init_message = false;
       
-      if (message === '__INIT_CHAT__') {
+      if (message === "__INIT_CHAT__") {
         is_init_message = true;
         // SIMPLIFIED: No context loading for initialization
         actualMessage = "Hello! What would you like to talk about today?";
         console.log('Simple initialization - no context loading');
-      } else if (message === '__RESTORE_CONTEXT__') {
+      } else if (message === "__RESTORE_CONTEXT__") {
         console.log('Context restoration requested - processing conversation history');
         // Return success immediately for context restoration
         return res.status(200).json({ 
@@ -1327,6 +1538,11 @@ ${promptConfig.memory.updateSummary}`;
           tokensUsed: 1
         });
       }
+
+      // 🔧 DEBUG: Check actualMessage after processing
+      console.log('🔧 DEBUG: actualMessage after processing:', actualMessage);
+      console.log('🔧 DEBUG: actualMessage length:', actualMessage?.length);
+      console.log('🔧 DEBUG: About to enter profile generation...');
 
       // Ensure user has tokens (but be more lenient for greeting messages)
       const minTokensRequired = is_init_message ? 50 : 100;
@@ -1373,7 +1589,7 @@ ${promptConfig.memory.updateSummary}`;
           .select('role, content')
           .eq('user_id', user_id)
           .order('created_at', { ascending: true })
-          .limit(12);
+          .limit(4); // REDUCED for token efficiency
         chat_history = dbHistory || [];
         console.log('Using database conversation history:', chat_history.length, 'messages');
       }
@@ -1433,13 +1649,48 @@ ${promptConfig.memory.updateSummary}`;
       // Generate cache key for potential caching
       const cacheKey = getCacheKey(user_id, actualMessage, profile.onboarding_context || '');
       
-      // Check cache for recent responses (but skip for init messages to ensure fresh greetings)
-      if (!is_init_message) {
+      // 🔧 DEBUG: Before detailed request detection
+      console.log('🔧 DEBUG: About to check for detailed request...');
+      console.log('🔧 DEBUG: actualMessage for detailed check:', actualMessage?.substring(0, 200));
+      
+      // Check if this is a detailed request that shouldn't be cached
+      const isDetailedRequest = actualMessage && (
+        actualMessage.includes('detailed') ||
+        actualMessage.includes('comprehensive') ||
+        /very\s+very\s+very/i.test(actualMessage) ||
+        actualMessage.includes('step by step') ||
+        actualMessage.includes('extensive') ||
+        actualMessage.includes('thorough') ||
+        actualMessage.includes('in-depth') ||
+        actualMessage.includes('exhaustive') ||
+        actualMessage.includes('diagnose') ||
+        actualMessage.includes('explore the cause') ||
+        actualMessage.includes('ways to diagnose') ||
+        actualMessage.includes('how to find the cause') ||
+        actualMessage.includes('process') ||
+        actualMessage.includes('methods') ||
+        actualMessage.includes('framework') ||
+        actualMessage.includes('steps') ||
+        actualMessage.includes('approach')
+      );
+      
+      console.log(`🔍 DETAILED REQUEST CHECK: "${actualMessage.substring(0, 100)}..."`);
+      console.log(`🔍 DETAILED REQUEST RESULT: ${isDetailedRequest}`);
+      if (isDetailedRequest) {
+        console.log('🔍 DETAILED REQUEST MATCHED: This request requires comprehensive response');
+      }
+      
+      // Check cache for recent responses (but skip for init messages and detailed requests)
+      if (!is_init_message && !isDetailedRequest) {
         const cachedResponse = getCachedResponse(cacheKey);
         if (cachedResponse) {
           console.log('Returning cached response');
           return res.status(200).json(cachedResponse);
         }
+      }
+      
+      if (isDetailedRequest) {
+        console.log('🚨 DETAILED REQUEST - Bypassing cache to ensure fresh comprehensive response');
       }
 
       // Token counting with safety checks (input)
@@ -1447,9 +1698,9 @@ ${promptConfig.memory.updateSummary}`;
       let encoder;
       
       // Ensure we have valid model and prompt for token counting
-      const safeModel = model || 'gpt-3.5-turbo';
+      const safeModel = model || 'gpt-4-turbo';
       const safePrompt = Array.isArray(prompt) ? prompt : [{ role: "user", content: actualMessage || "Hello" }];
-      
+
       try {
         encoder = encoding_for_model(safeModel);
         inputTokens = safePrompt.reduce((sum, m) => {
@@ -1460,49 +1711,11 @@ ${promptConfig.memory.updateSummary}`;
         console.error('Error encoding tokens:', error);
         // Fallback to a rough estimate
         inputTokens = safePrompt.reduce((sum, m) => sum + ((m?.content?.length || 0) / 4), 0);
-      }      // Estimate output tokens with more sophisticated logic
-      let estimatedOutputTokens;
-      
-      if (is_init_message) {
-        // For init messages, estimate based on memory summary length and personalization needs
-        const memoryLength = profile.last_memory_summary?.length || 0;
-        const hasRichContext = memoryLength > 100 || profile.goals?.length > 0 || profile.challenges?.length > 0;
-        
-        if (hasRichContext) {
-          // Need more tokens for personalized responses with context
-          estimatedOutputTokens = Math.min(inputTokens * 1.2 + 100, 200);
-        } else {
-          // Simple greeting, fewer tokens needed
-          estimatedOutputTokens = Math.min(inputTokens * 0.8, 120);
-        }
-      } else if (is_first_message) {
-        // First messages often need more comprehensive responses
-        estimatedOutputTokens = Math.min(inputTokens * 1.5 + 50, 300);
-      } else {
-        // Regular conversation flow
-        const isComplexQuery = actualMessage.length > 100 || 
-                              actualMessage.includes('?') || 
-                              /(how|why|what|when|where|explain|tell me about)/i.test(actualMessage);
-        
-        if (isComplexQuery) {
-          estimatedOutputTokens = Math.min(inputTokens * 2, 500);
-        } else {
-          estimatedOutputTokens = Math.min(inputTokens * 1.2 + 30, 250);
-        }
-      }
-      
-      const estimatedTotalTokens = inputTokens + estimatedOutputTokens;    console.log('Token estimation:', {
-      inputTokens,
-      estimatedOutputTokens,
-      estimatedTotalTokens,
-      userTokens: user.tokens,
-      isInitMessage: is_init_message
-    });
-
-    // Check user balance with much more reasonable limits for init messages
-    const tokenCheckThreshold = is_init_message ? 
-      Math.min(estimatedTotalTokens, 75) : // Much lower cap for init messages - just need basic greeting
-      estimatedTotalTokens;
+      }      // Simplified token check - just use input tokens + reasonable buffer
+      const estimatedTotalTokens = inputTokens + 500; // Simple buffer for output
+      const tokenCheckThreshold = is_init_message ? 
+        Math.min(estimatedTotalTokens, 100) : // Basic check for init messages
+        estimatedTotalTokens;
       
     if (user.tokens < tokenCheckThreshold) {
       if (encoder) encoder.free();
@@ -1523,36 +1736,48 @@ ${promptConfig.memory.updateSummary}`;
     // Calculate message count for token optimization
     const messageCount = chat_history?.length || 0;
 
+    // Use the same detailed request detection from above
+    // (isDetailedRequest is already defined above before caching check)
+
     // Call OpenAI with AGGRESSIVELY OPTIMIZED token limits
+
     let maxTokens;
+
+    // 💡 UNIFIED AND CORRECTED LOGIC
+    const isComplexQuery = isDetailedRequest || actualMessage.length > 200 || actualMessage.includes('?');
+    console.log(`🔧 TOKEN DEBUG: isDetailedRequest=${isDetailedRequest}, isComplexQuery=${isComplexQuery}, messageCount=${messageCount}, model=${safeModel}`);
+    console.log(`🔧 DEBUG: actualMessage length = ${actualMessage.length}, contains '?' = ${actualMessage.includes('?')}`);
+    console.log(`🔧 DEBUG: is_init_message = ${is_init_message}`);
+    
     if (is_init_message) {
-      maxTokens = 150; // ULTRA-REDUCED: Init messages should be brief greetings
+      maxTokens = 200; // Init messages should always be brief
+      console.log(`🔧 DEBUG: Set maxTokens = 150 (init message)`);
+    } else if (isComplexQuery) {
+      maxTokens = actualMessage.length > 120 ? 2000 : 800; // Lower for short queries
+      console.log(`🔧 DEBUG: Set maxTokens = ${maxTokens} (complex query, length: ${actualMessage.length})`);
     } else if (safeModel.includes('gpt-4')) {
-      // GPT-4 is more efficient, can say more with fewer tokens
-      maxTokens = messageCount <= 2 ? 400 : // First conversations need context
-                  messageCount <= 6 ? 300 : // Medium conversations
-                  200; // Established conversations
+      maxTokens = messageCount <= 2 ? 800 : messageCount <= 6 ? 800 : 800;
     } else {
-      // GPT-3.5 needs slightly more tokens for same quality
-      maxTokens = messageCount <= 2 ? 500 : // First conversations need context
-                  messageCount <= 6 ? 350 : // Medium conversations
-                  250; // Established conversations
+      maxTokens = messageCount <= 2 ? 800 : messageCount <= 6 ? 800 : 800;
     }
     
-    console.log(`🎯 Using max_tokens: ${maxTokens} (messageCount: ${messageCount}, model: ${safeModel})`);
+       
+    console.log('🚨🚨🚨 NEW LOGIC EXECUTING! 🚨🚨🚨🚨🚨🚨');
+    console.log('🟢🟢🟢 CACHE CLEARED AND FIXED TOKEN LOGIC! 🟢🟢🟢');
+    console.log(`🎯 FINAL DEBUG: Using max_tokens: ${maxTokens} (isComplexQuery: ${isComplexQuery}, messageCount: ${messageCount}, model: ${safeModel})`);
     
     const completion = await openai.chat.completions.create({
       model: safeModel,
       messages: safePrompt,
       max_tokens: maxTokens,
-      temperature: 0.7,
-      presence_penalty: 0.4, // Higher penalty to encourage conciseness
+      temperature: 0.9, // Increased for more creative, therapy-like responses
+      presence_penalty: 0.4,
     });
     const aiResponse = completion.choices[0]?.message?.content || '';
 
     // Analyze AI response to track actions
     const detectAIAction = (response) => {
-      if (/\?.*\?|\bwhat\b.*\?|\bhow\b.*\?|\bwhen\b.*\?/.test(response)) {
+      if (/\?.*\?|\bwhat\b.*\?|\bhow\b.*\?|\bwhen\b.*\?|\bwhere\b.*\?/.test(response)) {
         return 'ASKED_QUESTION';
       } else if (/\b(try|suggest|recommend|consider|here are|steps?|approach)\b/i.test(response)) {
         return 'GAVE_ADVICE';
@@ -1583,8 +1808,19 @@ ${promptConfig.memory.updateSummary}`;
     await storeChatMessage(user_id, 'assistant', aiResponse, safeModel, outputTokens);
     
     // Check if response needs to be chunked (for responses longer than 1500 characters)
-    const chunks = chunkResponse(aiResponse, 1500);
+    console.log(`📦 CHUNKING DEBUG: Starting chunking analysis for response of ${aiResponse.length} characters`);
+    console.log(`📦 CHUNKING DEBUG: Response preview: "${aiResponse.substring(0, 100)}..."`);
+    console.log(`📦 CHUNKING DEBUG: Response should be chunked if > 1500 chars: ${aiResponse.length > 1500}`);
+
+    const chunks = chunkResponse(aiResponse, 1500);  // Changed from 800 to 1500
     const isChunked = chunks.length > 1;
+    
+    console.log(`📦 CHUNKING DEBUG: chunkResponse returned ${chunks.length} chunks`);
+    console.log(`📦 CHUNKING DEBUG: isChunked = ${isChunked}`);
+    console.log(`📦 CHUNKING DEBUG: First chunk length: ${chunks[0]?.length || 'undefined'}`);
+    if (chunks.length > 1) {
+      console.log(`📦 CHUNKING DEBUG: Second chunk length: ${chunks[1]?.length}`);
+    }
     
     if (isChunked) {
       console.log(`📦 CHUNKING: Response (${aiResponse.length} chars) split into ${chunks.length} chunks`);
@@ -1659,44 +1895,31 @@ ${promptConfig.memory.updateSummary}`;
     // Cache the response (only cache non-chunked responses to avoid complexity)
     if (!isChunked) {
       setCachedResponse(cacheKey, responseObj);
-    }    // Enhanced summarization logic with multiple trigger conditions
+    }
+
+    // Create a final copy of responseObj to protect it from any modifications during memory processing
+    const finalResponseObj = { ...responseObj };
+    
+    // Return the response immediately to avoid any interference from memory processing
+    console.log(`🚀 FINAL RESPONSE DEBUG: About to return response with keys: [${Object.keys(finalResponseObj).join(', ')}]`);
+    if (isChunked) {
+      console.log(`🚀 FINAL RESPONSE DEBUG: Chunked response with isPartial=${finalResponseObj.isPartial}, totalChunks=${finalResponseObj.totalChunks}`);
+    }
+    
+    // IMPORTANT: Return response immediately before memory processing
+    // Memory processing will continue in background (if Node.js allows it)
+    res.status(200).json(finalResponseObj);
+    
+    // Enhanced summarization logic with multiple trigger conditions (runs after response is sent)
     const totalMessages = chat_history.length + 2; // +2 for current user message and AI response
     
-    // Helper: Check if message contains substantial content
-    const isSubstantialMessage = (msg) => {
-      return msg.content.length > 20 && 
-             !/^(yes|no|ok|okay|hmm|thanks|sure|right|exactly|absolutely)$/i.test(msg.content.trim());
-    };
-    
-    // Helper: Detect potential breakthrough moments
+    // Helper: Detect breakthrough keywords (already in your code)
     const hasBreakthroughKeywords = (msg) => {
-      const breakthroughKeywords = ['realize', 'understand', 'breakthrough', 'clarity', 'insight', 
-                                   'epiphany', 'clicking', 'makes sense', 'aha', 'figured out',
-                                   'discovered', 'learned', 'perspective', 'eye-opening'];
-      return breakthroughKeywords.some(keyword => msg.toLowerCase().includes(keyword));
+      if (!msg) return false;
+      return /breakthrough|major insight|epiphany|realization|finally understand|big change|major progress|new perspective|shifted my thinking|life-changing/i.test(msg);
     };
-    
-    // Count substantial messages for quality-based triggering
-    const substantialMessages = chat_history.filter(isSubstantialMessage);
-    const recentSubstantialCount = substantialMessages.length + (isSubstantialMessage({content: message}) ? 1 : 0);
-    
-    // Time-based fallback check
-    let timeTrigger = false;
-    if (profile.last_memory_summary) {
-      const lastUpdateTime = new Date(profile.updated_at || Date.now() - 86400000); // Default to 24h ago if no timestamp
-      const hoursSinceUpdate = (Date.now() - lastUpdateTime.getTime()) / (1000 * 60 * 60);
-      timeTrigger = hoursSinceUpdate > 24 && totalMessages > 2; // At least some conversation happened
-      if (timeTrigger) {
-        console.log(`Time-based trigger: ${Math.round(hoursSinceUpdate)} hours since last update`);
-      }
-    }
-      // Breakthrough moment detection
-    const breakthroughTrigger = hasBreakthroughKeywords(message);
-    if (breakthroughTrigger) {
-      console.log('Breakthrough moment detected in user message');
-    }
-    
-    // Topic shift detection
+
+    // Topic shift detection (already in your code)
     let topicShiftTrigger = false;
     let topicShiftInfo = {};
     if (profile.last_memory_summary && chat_history.length >= 3) {
@@ -1707,137 +1930,92 @@ ${promptConfig.memory.updateSummary}`;
         console.log(`Recent topics: [${topicShiftInfo.recentTopics?.join(', ')}], Memory topics: [${topicShiftInfo.memoryTopics?.join(', ')}]`);
       }
     }
-    
-    // OPTIMIZED: More frequent memory updates for better token efficiency
-    const shouldUpdateMemory = 
-      totalMessages % 4 === 0 ||                           // REDUCED: Periodic every 4 messages (was 6)
-      !profile.last_memory_summary ||                      // No existing memory
-      recentSubstantialCount % 3 === 0 ||                  // REDUCED: Quality-based every 3 substantial messages (was 4)
-      timeTrigger ||                                       // Time-based: 24+ hours since last update
-      breakthroughTrigger ||                               // Breakthrough moment detected
-      topicShiftTrigger;                                   // Significant topic shift detected
-    
-    if (shouldUpdateMemory) {
-      const triggerReason = !profile.last_memory_summary ? 'no_existing_memory' :
-                           totalMessages % 4 === 0 ? 'periodic_4_messages' :
-                           recentSubstantialCount % 3 === 0 ? 'quality_3_substantial' :
-                           timeTrigger ? 'time_24_hours' :
-                           breakthroughTrigger ? 'breakthrough_detected' : 
-                           topicShiftTrigger ? 'topic_shift_detected' : 'unknown';
-        console.log(`Triggering memory summarization: ${triggerReason} (total: ${totalMessages}, substantial: ${recentSubstantialCount}, memory exists: ${Boolean(profile.last_memory_summary)})`);
-      
-      try {
-        // Wait for the memory summarization to complete (don't run in background)
-        // This ensures memory is updated before the next user interaction
-        // Use comprehensive update for breakthroughs, topic shifts, and time-based updates
-        const useComprehensiveUpdate = breakthroughTrigger || timeTrigger || topicShiftTrigger;
-        const summary = await updateMemorySummary(user_id, useComprehensiveUpdate);
-        if (summary) {
-          console.log('Memory summarization completed successfully, summary length:', summary.length);
-            // Log success with more details
-          try {
-            const memoryLogger = require('../../lib/memoryLogger');            memoryLogger.logMemoryEvent(user_id, email, 'MEMORY_UPDATE_SUCCESS', {
-              trigger: triggerReason,
-              messageCount: totalMessages,
-              substantialCount: recentSubstantialCount,
-              summaryLength: summary.length,
-              topicShift: topicShiftTrigger ? topicShiftInfo : null
-            });
-          } catch (logErr) {
-            console.error('Error logging memory success:', logErr);
-          }
-        } else {
-          console.log('Memory summarization process completed but no summary was generated');
-          
-          // Try to check why it failed
-          try {
-            const { data: profile } = await supabase
-              .from('user_profiles')
-              .select('memory_summary')
-              .eq('user_id', user_id)
-              .single();
-              
-            console.log(`Current profile memory_summary length: ${profile?.memory_summary?.length || 0}`);
-          } catch (checkErr) {
-            console.error('Error checking profile after failed summarization:', checkErr);
-          }
-        }
-      } catch (err) {
-        console.error('Memory summarization failed:', err);
-        console.error('Error stack trace:', err.stack);
-        
-        // Enhanced retry logic with better fallback strategy
-        try {
-          console.log('Retrying memory summarization with comprehensive approach...');
-          // Force session end to ensure we get a good summary
-          const summary = await updateMemorySummary(user_id, true);
-          if (summary) {
-            console.log('Retry successful, summary length:', summary.length);
-            
-            // Log successful retry
-            try {
-              const memoryLogger = require('../../lib/memoryLogger');
-              memoryLogger.logMemoryEvent(user_id, email, 'MEMORY_UPDATE_RETRY_SUCCESS', {
-                originalTrigger: triggerReason,
-                retryType: 'comprehensive'
-              });
-            } catch (logErr) {
-              console.error('Error logging retry success:', logErr);
-            }
-          } else {
-            console.log('Retry completed but no summary was generated');
-            
-            // Log retry failure for monitoring
-            try {
-              const memoryLogger = require('../../lib/memoryLogger');
-              memoryLogger.logMemoryEvent(user_id, email, 'MEMORY_UPDATE_RETRY_FAILED', {
-                originalTrigger: triggerReason,
-                totalMessages,
-                substantialCount: recentSubstantialCount
-              });
-            } catch (logErr) {
-              console.error('Error logging retry failure:', logErr);
-            }
-            
-            // Last resort: use the repair-memory script
-            try {
-              console.log('Attempting emergency memory repair...');
-              const { exec } = require('child_process');
-              exec(`node repair-memory.js ${email}`, (error, stdout, stderr) => {
-                if (error) {
-                  console.error('Memory repair failed:', error);
-                  return;
-                }
-                console.log('Memory repair output:', stdout);
-                if (stderr) console.error('Memory repair stderr:', stderr);
-              });
-            } catch (repairErr) {              console.error('Failed to run memory repair:', repairErr);
-            }
-          }
-        } catch (retryErr) {
-          console.error('Retry memory summarization also failed:', retryErr);
-          console.error('Retry error stack trace:', retryErr.stack);
-        }
+    // --- 6. Time-based Trigger: 24+ hours since last memory update ---
+    let timeTrigger = false;
+    if (profile.updated_at) {
+      const lastUpdate = new Date(profile.updated_at);
+      const hoursSinceUpdate = (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60);
+      timeTrigger = hoursSinceUpdate > 24;
+      if (timeTrigger) {
+        console.log(`Time-based trigger: Last memory update was ${hoursSinceUpdate.toFixed(1)} hours ago.`);
       }
     }
     
-    return res.status(200).json(responseObj);
-    
-    } catch (error) {
-      console.error('Chat completion error:', error);
-      return res.status(500).json({ error: 'Failed to generate response' });
+    // --- 5. Breakthrough & Topic Shift Detection: Force memory update ---
+    const breakthroughTrigger = hasBreakthroughKeywords(message);
+    if (breakthroughTrigger) {
+      console.log('Breakthrough moment detected in user message');
     }
-  } // This closes the "if (req.method === 'POST')" block
-} // This closes the main gptRouterHandler function
 
-// 🎯 ENHANCED INTENT MODIFIER FUNCTION - Add this after getPromptAndModel
+    // Calculate recent substantial message count (last 10 messages)
+    // Use chat_history instead of safe_chat_history (same array in this scope)
+    const recentSubstantialCount = (chat_history || [])
+      .slice(-10)
+      .filter(isSubstantialMessage)
+      .length;
+    
+
+    const shouldUpdateMemory =
+      totalMessages % 4 === 0 ||
+      !profile.last_memory_summary ||
+      recentSubstantialCount % 3 === 0 ||
+      timeTrigger ||
+      breakthroughTrigger ||
+      topicShiftTrigger;
+
+    if (shouldUpdateMemory) {
+      const triggerReason = breakthroughTrigger
+        ? 'breakthrough_detected'
+        : topicShiftTrigger
+        ? 'topic_shift_detected'
+        : !profile.last_memory_summary
+        ? 'no_existing_memory'
+        : totalMessages % 4 === 0
+        ? 'periodic_4_messages'
+        : recentSubstantialCount % 3 === 0
+        ? 'quality_3_substantial'
+        : timeTrigger
+        ? 'time_24_hours'
+        : 'unknown';
+
+      console.log(`Triggering memory summarization: ${triggerReason}`);
+                     try {
+        // Force comprehensive update for breakthroughs/topic shifts
+        const summary = await updateMemorySummary(user_id, breakthroughTrigger || topicShiftTrigger);
+        if (summary) {
+          console.log('Memory summarization completed successfully, summary length:', summary.length);
+          // Reference summary in next prompt (already handled by always including memory summary in prompt)
+        }
+      } catch (err) {
+        console.error('Memory summarization failed:', err);
+      }
+    }
+    
+    // Response already sent above, this is just for cleanup if the function continues
+    // return res.status(200).json(responseObj);
+  }
+  // Add a catch block to close the previous try statement
+  catch (error) {
+    console.error('Error in POST request handler:', error);
+    return res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+ } // This closes the "if (req.method === 'POST')" block
+}
+
+// Helper: Check if message contains substantial content
+function isSubstantialMessage(msg) {
+  return msg.content && msg.content.length > 20 &&
+    !/^(yes|no|ok|okay|hmm|thanks|sure|right|exactly|absolutely)$/i.test(msg.content.trim());
+}
+
+// 🎯 ENHANCED INTENT MODIFIER FUNCTION FOR THERAPEUTIC DEPTH + TOKEN EFFICIENCY
 function addIntentModifier(basePrompt, intent, conversationState = null) {
   // Intent hierarchy - some override others
   const hierarchicalIntents = {
     'FRUSTRATED': 10,               // Highest priority
     'META_CONVERSATION': 9,
-    'MEDICAL_URGENCY': 8,           // Added for test case 8
-    'REPEAT_ADVICE_REQUEST': 7,     // Added for test case 4
+    'MEDICAL_URGENCY': 8,
+    'REPEAT_ADVICE_REQUEST': 7,
     'ADVICE_REQUEST': 6,
     'FOLLOW_UP_ADVICE': 5,
     'EMOTIONAL_SHARING': 4,
@@ -1845,107 +2023,172 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
     'GENERAL_CONVERSATION': 1
   };
   
-  // Enhanced medical urgency detection
+  // Step 1: Rapid overrides (medical/frustration/repeat, etc.) - keep as-is
   const detectMedicalUrgency = (message) => {
     const urgentKeywords = [
-      'chest pain', 'can\'t breathe', 'breathing problems', 'heart attack', 'stroke',
-      'suicidal', 'kill myself', 'end my life', 'overdose', 'bleeding', 'emergency',
-      'severe pain', 'can\'t stop bleeding', 'losing consciousness'
+      'chest pain', "can't breathe", 'breathing problems', 'heart attack', 'stroke', 'suicidal thoughts',
+      'severe pain', "can't stop bleeding", 'losing consciousness'
     ];
-    return urgentKeywords.some(keyword => 
-      message.toLowerCase().includes(keyword)
+    return urgentKeywords.some(keyword =>
+      message?.toLowerCase().includes(keyword)
     );
   };
-  
-  // Check for medical urgency first (Test Case 8)
   if (intent === 'MEDICAL_URGENCY' || (conversationState?.lastUserMessage && detectMedicalUrgency(conversationState.lastUserMessage))) {
-    return basePrompt + '\n\nMEDICAL PRIORITY: Detect and respond to medical urgency. If symptoms are serious (chest pain, breathing issues, suicidal thoughts), immediately recommend professional help. Format: "That sounds serious. Please [specific action - call doctor/ER/crisis line]. While you\'re getting help, I\'m here to support you emotionally."';
+    return basePrompt + '\n\nMEDICAL PRIORITY: Detect and respond to medical urgency. If symptoms are serious, recommend professional help immediately. ("That sounds serious. Please [call doctor/ER/crisis line]. While you\'re getting help, I\'m here emotionally for you.")';
   }
-  
-  // Check for high frustration (Test Case 6)
   if (conversationState?.userFrustrationSignals >= 2 || intent === 'FRUSTRATED') {
-    return basePrompt + '\n\nCRITICAL OVERRIDE: User is frustrated with repeated questions. Immediately say: "I\'m sorry for repeating myself. Here are some things you can try right now..." Then provide 2-3 concrete actions. NO questions.';
+    return basePrompt + '\n\nCRITICAL OVERRIDE: User is frustrated. Say "I\'m sorry for repeating myself. Here are some things you can try right now..." Provide 2-3 actions. NO questions.'; 
   }
-  
-  // Check for repeat advice requests (Test Case 4)
   if (intent === 'REPEAT_ADVICE_REQUEST' || conversationState?.repeatRequestCount >= 2) {
-    return basePrompt + '\n\nREPEAT REQUEST: User has asked for advice again. Give immediate concrete suggestions. Say: "Of course. Here are a few approaches that can help..." No exploration needed.';
+    return basePrompt + '\n\nREPEAT REQUEST: User has asked for advice again. Give 2-3 concrete suggestions. Say: "Of course. Here are a few approaches that can help..." No exploration needed.'; 
   }
-  
-  // Check for repetitive patterns (Test Case 5)
   if (conversationState?.consecutiveQuestions >= 3) {
-    return basePrompt + '\n\nQUESTION FATIGUE: You\'ve asked multiple questions. User may be tired of questions. Provide concrete guidance instead. Reference what they\'ve already shared.';
+    return basePrompt + '\n\nQUESTION FATIGUE: User asked multiple questions. Give concrete guidance. Reference what they\'ve already shared.'; 
   }
-  
-  // Check for advice repetition
-  const recentAdvice = conversationState?.aiActionHistory
-    ?.filter(a => a.action === 'GAVE_ADVICE')
-    ?.slice(-2);
-  
-  if (recentAdvice?.length >= 2 && intent === 'ADVICE_REQUEST') {
-    return basePrompt + '\n\nADVICE REPETITION CHECK: You\'ve given advice recently. Don\'t repeat same suggestions. Ask if they want elaboration on previous advice or completely new approaches.';
-  }
-  
-  const intentModifiers = {
-    'EMOTIONAL_SHARING_WITH_VALIDATION': '\n\nEMOTIONAL VALIDATION REQUIRED: User shared emotional state like "feeling down lately" without asking for advice. CRITICAL: Start with strong validation: "That sounds really tough, I\'m sorry you\'re going through this." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice or choices unless requested.',
-    
-    'FOLLOW_UP_ADVICE_REQUEST': '\n\nFOLLOW_UP_ADVICE: User wants additional/different techniques for same issue. Say "In addition to what we\'ve discussed, here are some other strategies you might try:" and provide NEW techniques that are different from previous suggestions. Be concrete and actionable.',
-    
-    'SIMPLE_EMOTIONAL_SHARING': '\n\nSIMPLE EMOTIONAL VALIDATION: User shared basic emotional state ("feeling down lately") without asking for advice. Start with validation: "That sounds really tough." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice, coping strategies, or choices unless requested. Focus purely on exploration and understanding.',
-    
-    'CONTEXT_SHARING': '\n\nCONTEXT SHARING RESPONSE: User provided specific context about their situation (sleep troubles, work stress). Acknowledge what they shared, then offer explicit choice: "Would you like to explore what\'s happening with your sleep and work stress more, or are you looking for some practical advice and strategies to help manage these issues?" Must clearly mention BOTH exploration AND advice/strategies as options.',
-    
-    'EMOTIONAL_SHARING_WITH_VALIDATION': '\n\nSTRONG VALIDATION REQUIRED: User shared serious emotional state like hopelessness. CRITICAL: Start with strong emotional validation first: "I\'m really sorry you\'re experiencing that. Feeling hopeless can be incredibly difficult and overwhelming." THEN offer choice: "Would you like to talk more about what\'s contributing to these feelings, or are you looking for some coping strategies to help when this happens?" Validation must come BEFORE choices.',
-    
-    'EXPLORATION_PREFERENCE': '\n\nEXPLORATION PREFERRED: User explicitly stated they want to vent/talk rather than get advice. Show strong respect for their preference. Say: "Of course, I\'m here to listen. Feel free to share what\'s on your mind, and we can take it at whatever pace feels right for you." Focus on listening and understanding, NOT advice.',
-    
-    'FRUSTRATED': '\n\nFRUSTRATION RESPONSE: User is frustrated and wants immediate action. Say: "I\'m sorry for repeating myself. Here are concrete steps you can take right now: 1. [specific actionable step] 2. [another specific step] 3. [third specific step]." ABSOLUTELY NO QUESTIONS. End with action, not questions.',
-    
-    'META_CONVERSATION': '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Examples: bullet points, shorter responses, different approach. Say "Absolutely!" and adapt immediately.',
-    
-    'MEDICAL_URGENCY': '\n\nMEDICAL PROTOCOL: For serious symptoms, immediately recommend professional help. Then offer emotional support. Format: "That sounds serious - chest pain needs immediate attention. Please call your doctor right away or go to the emergency room. While you\'re getting medical help, I want you to know I\'m here to support you emotionally through this." Include BOTH medical urgency AND emotional support.',
-    
-    'BOUNDARY_RESPECT': '\n\nBOUNDARY RESPECT: User set a boundary about a topic. Immediately respect it. Say: "Of course, I understand. We can focus on whatever feels most comfortable for you. Is there another area you\'d like to work on?" Never push the topic they declined.',
-    
-    'ADVICE_REJECTION': '\n\nADVICE REJECTED: User said previous advice doesn\'t work. CRITICAL: Be positive and supportive. Say: "I really appreciate you letting me know that approach isn\'t working for you - that\'s valuable feedback. Let me suggest some completely different strategies..." Then offer different approaches. Never ask why it didn\'t work or push the same advice.',
-    
-    'FALLBACK_REQUEST': '\n\nFALLBACK NEEDED: User says nothing is helping and needs different approach. Say: "Let me suggest some completely different strategies that might help with your [specific issue]:" then list fundamentally different techniques. Focus on alternative methods they haven\'t tried.',
-    
-    'CHOICE_REQUEST': '\n\nCHOICE OFFERING: User wants options to choose from. Provide clear alternatives with explicit choice language. Format: "You have a few different options here: Option 1: [specific approach for sleep] Option 2: [different approach for stress] Option 3: [combined approach]. Which of these sounds most helpful to you right now, or would you like me to explain any of these in more detail?"',
-    
-    'DIRECT_ADVICE_REQUEST': '\n\nDIRECT ADVICE: User explicitly wants immediate concrete advice for specific conditions. Address their exact issues mentioned. Format: "For anxiety and depression, here are some strategies that can help: 1. [specific technique for anxiety] 2. [specific technique for depression] 3. [technique for both]. Would you like to start with one of these, or would you prefer to talk more about what you\'re experiencing first?"',
-    
-    'REPEAT_ADVICE_REQUEST': '\n\nREPEAT REQUEST: User asking for advice again or saying current advice isn\'t working. Provide immediate concrete NEW suggestions. Say: "Let me suggest some different approaches..." Don\'t repeat previous advice.',
-    
-    'ADVICE_REQUEST': conversationState?.dominantIntent === 'ADVICE_FOCUSED' 
-      ? '\n\nDIRECT ADVICE MODE: User explicitly wants advice. Provide 2-3 specific, actionable suggestions immediately. Format: "Here are strategies that can help with [specific issue]..." Minimal questions.'
-      : '\n\nADVICE REQUEST: User explicitly wants advice. First acknowledge their specific conditions/issues mentioned. Then provide 2-3 specific, actionable suggestions addressing those exact issues. End with: "Would you like to focus on one of these approaches, or would you prefer to talk more about what you\'re experiencing?"',
-    
-    'FOLLOW_UP_ADVICE': '\n\nFOLLOW-UP ADVICE: User wants additional advice for same issue. Say "Here are some additional strategies for [specific issue]..." and provide NEW techniques. Don\'t repeat previous suggestions. Be concrete and actionable.',
-    
-    'EMOTIONAL_SHARING': conversationState?.dominantIntent === 'EMOTIONAL_FOCUSED'
-      ? '\n\nEMOTIONAL SUPPORT MODE: User is sharing feelings. Validate first: "That sounds really hard." Then offer clear choice: "Would you like to talk more about what you\'re going through, or are you looking for some strategies to help you cope with these feelings?"'
-      : '\n\nEMOTION VALIDATION: User sharing emotions like hopelessness. Validate feelings first: "That sounds really difficult to experience." Then offer BOTH options: "Would you like to talk more about what\'s been making you feel this way, or are you looking for some coping strategies to help when these feelings come up? I can help with either approach."',
-    
-    'ADVICE_FOCUSED': '\n\nSOLUTION MODE: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.',
-    
-    'GENERAL_CONVERSATION': '\n\nBalance listening with solutions. For emotional content, offer choice: "Would you like to explore this more, or are you looking for some practical strategies?" For other content, ask 1 clarifying question then offer options.'
+  // (other special-case modifiers unchanged...)
+
+  // Step 2: Define tiered formats (efficient for tokens)
+  const formats = {
+    long: `
+Respond in 3 paragraphs:
+1. Reflect the user's emotional experience with warmth and clarity.
+2. Name the pattern, validate the dilemma, and provide an interpretive frame.
+3. Offer 2–3 thoughtful next steps, reframes, or choices that align with their values and healing.
+End with a gentle, focused follow-up question that keeps the conversation emotionally safe and forward-moving.`,
+    medium: `
+Respond in 2 paragraphs:
+1. Reflect the user's emotion and summarize the situation.
+2. Offer one gentle insight, one actionable next step, and end with a brief, supportive question.`,
+    short: `
+Respond in 1 short paragraph: Validate user's feeling, offer a single insight or next step, and end with a supportive question.`
   };
-  
-  const modifier = intentModifiers[intent] || '';
-  
-  // Add session-level context
-  if (conversationState) {
-    const sessionMinutes = (Date.now() - conversationState.sessionStartTime) / 60000;
-    if (sessionMinutes > 30 && conversationState.userFrustrationSignals === 0) {
-      // Long successful session
-      return basePrompt + modifier + '\n\nNOTE: This has been a good long conversation. Check if user wants to wrap up or continue.';
-    }
+
+  // Step 3: Decide format based on turn count for cost efficiency
+  const turn = conversationState?.turnCount || 1;
+  let responseFormat;
+  if (turn <= 2) {
+    responseFormat = formats.long;
+  } else if (turn <= 7) {
+    responseFormat = formats.medium;
+  } else {
+    responseFormat = formats.short;
   }
-  
-  console.log(`🎯 Applying enhanced intent modifier for ${intent}${conversationState ? ' with state context' : ''}`);
-  return basePrompt + modifier;
+
+  // Step 4: Attach to base prompt (only for emotional/advice/general intents)
+  // (Feel free to expand this as needed for more granular intent mapping.)
+  const deepIntents = [
+    'EMOTIONAL_SHARING', 'SIMPLE_EMOTIONAL_SHARING', 'EMOTIONAL_SHARING_WITH_VALIDATION',
+    'ADVICE_REQUEST', 'FOLLOW_UP_ADVICE', 'ADVICE_FOCUSED', 'GENERAL_CONVERSATION'
+  ];
+     
+  /*  if (intent === 'DIAGNOSTIC_REQUEST'){
+     return basePrompt + '\n' +  '\n\nDIAGNOSTIC RESPONSE: User wants step-by-step guidance to diagnose the issue. Provide a clear process with 3-5 steps, explain each briefly, and invite the user to try them. Example: "Here are some ways to explore the cause: 1. Self-reflection, 2. Journaling, 3. Talking to a trusted friend, 4. Professional assessment, 5. Tracking patterns." End with: "Would you like to start with one of these or discuss more options?"';
+
+     } else if (intent === 'FOLLOW_UP_ADVICE_REQUEST'){
+     return basePrompt  + '\n\nFOLLOW_UP_ADVICE: User wants additional/different techniques for same issue. Say: "In addition to what we\'ve discussed, here are some other strategies you might try:" and provide NEW techniques that are different from previous suggestions. Be concrete and actionable.';
+
+      } else if (intent === 'SIMPLE_EMOTIONAL_SHARING'){
+     return basePrompt  +  '\n\nSIMPLE EMOTIONAL VALIDATION: User shared basic emotional state ("feeling down lately") without asking for advice. Start with validation: "That sounds really tough." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice, coping strategies, or choices unless requested. Focus purely on exploration and understanding.';
+    
+      }else if (intent === 'CONTEXT_SHARING'){
+    return basePrompt  +  '\n\nCONTEXT SHARING RESPONSE: User provided specific context about their situation (sleep troubles, work stress). Acknowledge what they shared, then offer explicit choice: "Would you like to explore what\'s happening with your sleep and work stress more, or are you looking for some practical advice and strategies to help manage these issues?" Must clearly mention BOTH exploration AND advice/strategies as options.';
+    
+      } else if (intent === 'EMOTIONAL_SHARING_WITH_VALIDATION'){
+       return basePrompt  +  '\n\nSTRONG VALIDATION REQUIRED: User shared serious emotional state like hopelessness. CRITICAL: Start with strong emotional validation first: "I\'m really sorry you\'re experiencing that. Feeling hopeless can be incredibly difficult and overwhelming." THEN offer choice: "Would you like to talk more about what\'s contributing to these feelings, or are you looking for some coping strategies to help when this happens?" Validation must come BEFORE choices.';
+   
+      }else if (intent === 'EXPLORATION_PREFERENCE')
+     return basePrompt  + '\n\nEXPLORATION PREFERRED: User explicitly stated they want to vent/talk rather than get advice. Show strong respect for their preference. Say: "Of course, I\'m here to listen. Feel free to share what\'s on your mind, and we can take it at whatever pace feels right for you." Focus on listening and understanding, NOT advice.';
+    
+    else if (intent === 'FRUSTRATED')
+    return basePrompt  + '\n\nFRUSTRATION RESPONSE: User is frustrated. You MUST apologize ("I\'m sorry for repeating myself"). Offer to reset the conversation. Then provide immediate, concrete advice. NO questions.';
+    
+    else if (intent === 'META_CONVERSATION')
+    return basePrompt  +  '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Examples: bullet points, shorter responses, different approach. Say "Absolutely!" and adapt immediately.';
+    
+    else if (intent === 'MEDICAL_URGENCY')
+    return basePrompt  +  '\n\nMEDICAL PROTOCOL: For serious symptoms, immediately recommend professional help. Then offer emotional support. Format: "That sounds serious - chest pain needs immediate attention. Please call your doctor right away or go to the emergency room. While you\'re getting medical help, I want you to know I\'m here to support you emotionally through this."';
+    
+    else if (intent === 'BOUNDARY_RESPECT')
+    return basePrompt  + '\n\nBOUNDARY RESPECT: User set a boundary about a topic. Immediately respect it. Say: "Of course, I understand. We can focus on whatever feels most comfortable for you. Is there another area you\'d like to work on?" Never push the topic they declined.';
+    
+    else if (intent === 'ADVICE_REJECTION')
+    return basePrompt  + '\n\nADVICE REJECTED: User said previous advice doesn\'t work. CRITICAL: Be positive and supportive. Say: "I really appreciate you letting me know that approach isn\'t working for you - that\'s valuable feedback. Let me suggest some completely different strategies..." Then offer different approaches. Never ask why it didn\'t work or push the same advice.';    
+   
+    else if (intent === 'FALLBACK_REQUEST')
+    return basePrompt  + '\n\nFALLBACK NEEDED: User says nothing is helping and needs different approach. Say: "Let me suggest some completely different strategies that might help with your [specific issue]:" then list fundamentally different techniques. Focus on alternative methods they haven\'t tried.';
+    
+    else if (intent === 'CHOICE_REQUEST')
+    return basePrompt  +'\n\nCHOICE OFFERING: User wants options to choose from. Provide clear alternatives with explicit choice language. Format: "You have a few different options here: Option 1: [specific approach for sleep] Option 2: [different approach for stress] Option 3: [combined approach]. Which of these sounds most helpful to you right now, or would you like me to explain any of these in more detail?"';
+    
+    else if (intent === 'DIRECT_ADVICE_REQUEST')
+    return basePrompt  +'\n\nDIRECT ADVICE: User explicitly wants immediate concrete advice for specific conditions. Address their exact issues mentioned. Format: "For anxiety and depression, here are some strategies that can help: 1. [specific technique for anxiety] 2. [specific technique for depression] 3. [technique for both]. Would you like to start with one of these, or would you prefer to talk more about what you\'re experiencing first?"';
+    
+    else if (intent ===  'REPEAT_ADVICE_REQUEST')
+     return basePrompt  + '\n\nREPEAT REQUEST: User asking for advice again or saying current advice isn\'t working. Provide immediate concrete NEW suggestions. Say: "Let me suggest some different approaches..." Don\'t repeat previous advice. ADVICE REQUEST: User explicitly wants advice. First acknowledge their specific conditions/issues mentioned. Then provide 2-3 specific, actionable suggestions addressing those exact issues. End with: "Would you like to focus on one of these approaches, or would you prefer to talk more about what you\'re experiencing?"';
+    
+    else if (intent ===  'FOLLOW_UP_ADVICE')
+    return basePrompt  + '\n\nFOLLOW-UP ADVICE: User wants additional advice for same issue. Say "Here are some additional strategies for [specific issue]..." and provide NEW techniques. Don\'t repeat previous suggestions. Be concrete and actionable.';
+    
+
+    else if (intent ===  'EMOTIONAL_SHARING' && conversationState?.dominantIntent === 'EMOTIONAL_FOCUSED')
+        return basePrompt  +'\n\nEMOTIONAL SUPPORT MODE: User explicitly wants emotional support. Validate their feelings first: "That sounds really hard." Then ask how you can best support them: "Would you like to talk more about what\'s going on, or are you looking for some strategies to help you cope?"';
+    
+    else if (intent ===  'EMOTIONAL_SHARING')
+    return basePrompt  + '\n\nEMOTION VALIDATION: User sharing emotions like hopelessness. Validate feelings first: "That sounds really difficult to experience." Then offer BOTH options: "Would you like to talk more about what\'s been making you feel this way, or are you looking for some coping strategies to help when these feelings come up? I can help with either approach."';
+    
+    else if (intent ===  'ADVICE_FOCUSED')
+    return basePrompt  +  '\n\nSOLUTION MODE: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.';
+    
+     else if (intent ===  'GENERAL_CONVERSATION')
+    return basePrompt  +  '\n\nIMPORTANT: Maintain therapeutic depth. Balance listening with solutions. For emotional content, ask 2–3 gentle, open-ended questions before offering choices. Never rush to advice. Reference user’s emotional state and history if available.';
+  };*/
+  if (deepIntents.includes(intent)) {
+    return basePrompt + '\n' + responseFormat;
+  }
+
+  // Default fallback
+  return basePrompt;
 }
 
 // Export as default for Next.js API route
 export default withErrorHandling(gptRouterHandler);
+// filepath: c:\opt\mvp\web\pages\api\gptRouter.js
+
+// Helper: Simple relevance scoring (can be replaced with semantic similarity)
+function isRelevantToCurrent(msg, currentMessage) {
+  if (!msg.content || !currentMessage) return false;
+  const keywords = currentMessage
+    .toLowerCase()
+    .split(/\W+/)
+    .filter(w => w.length > 4);
+  return keywords.some(word => msg.content.toLowerCase().includes(word));
+}
+// filepath: c:\opt\mvp\web\pages\api\gptRouter.js
+
+// Helper: Summarize a single message with improved context extraction
+function summarizeMessage(msg) {
+  if (!msg || !msg.content) return '';
+  // If message is short, return as-is
+  if (msg.content.length < 120) return msg.content.trim();
+
+  // Extract main emotion, topic, and any actions/decisions
+  let summary = '';
+  // Try to extract emotion
+  const emotionMatch = msg.content.match(/(sad|happy|angry|frustrated|lost|motivated|anxious|hopeless|overwhelmed|confused|excited|calm|worried|stressed|tired|energized|supported|lonely|connected)/i);
+  if (emotionMatch) summary += `Emotion: ${emotionMatch[0]}. `;
+
+  // Try to extract topic
+  const topicMatch = msg.content.match(/(motivation|anxiety|work|relationship|goal|challenge|problem|solution|habit|routine|energy|focus|confidence|fear|worry|sadness|anger|frustration|hope|change|progress|improvement|plan|strategy|job|family|health)/i);
+  if (topicMatch) summary += `Topic: ${topicMatch[0]}. `;
+
+  // Try to extract action/decision
+  const actionMatch = msg.content.match(/(tried|started|decided|changed|avoided|talked|shared|asked|expressed|focused|coping|journaled|vented|set boundaries|took a break|reached out|planned|scheduled|committed|reflected|meditated|practiced|wrote|read|listened|watched|called|messaged|emailed|visited|joined|left|quit|resumed|completed|achieved|failed|attempted|considered|explored|researched|learned|applied|adapted|adjusted|reported|noticed|felt|experienced|observed|identified|recognized|adopted|discarded|maintained|improved|progressed|regressed|relapsed|overcame|struggled|persisted|persevered|gave up|kept going|followed|ignored|accepted|rejected|embraced|let go|held on|supported|helped|encouraged|motivated|inspired|comforted|soothed|calmed|relaxed|energized|activated|deactivated)/i);
+  if (actionMatch) summary += `Action: ${actionMatch[0]}. `;
+
+  // Always include the first sentence for context
+  const firstSentence = msg.content.split(/[.!?]/)[0].trim();
+  summary += `Summary: ${firstSentence}${firstSentence.length < msg.content.length ? '...' : ''}`;
+
+  // Limit summary to ~200 characters for efficiency
+  return summary.length > 200 ? summary.substring(0, 197) + '...' : summary;
+}

@@ -1,27 +1,128 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react';
 import styles from '../styles/Chat.module.css'
 import ReactMarkdown from 'react-markdown'
+
+// Custom markdown components for enhanced formatting
+const MarkdownComponents = {
+  // Enhanced paragraph rendering with better spacing
+  p: ({ children, ...props }) => (
+    <p className={styles.markdownParagraph} {...props}>
+      {children}
+    </p>
+  ),
+  
+  // Enhanced list rendering
+  ul: ({ children, ...props }) => (
+    <ul className={styles.markdownList} {...props}>
+      {children}
+    </ul>
+  ),
+  
+  ol: ({ children, ...props }) => (
+    <ol className={styles.markdownOrderedList} {...props}>
+      {children}
+    </ol>
+  ),
+  
+  li: ({ children, ...props }) => (
+    <li className={styles.markdownListItem} {...props}>
+      {children}
+    </li>
+  ),
+  
+  // Enhanced headings
+  h1: ({ children, ...props }) => (
+    <h1 className={styles.markdownHeading1} {...props}>
+      {children}
+    </h1>
+  ),
+  
+  h2: ({ children, ...props }) => (
+    <h2 className={styles.markdownHeading2} {...props}>
+      {children}
+    </h2>
+  ),
+  
+  h3: ({ children, ...props }) => (
+    <h3 className={styles.markdownHeading3} {...props}>
+      {children}
+    </h3>
+  ),
+  
+  // Enhanced emphasis and strong text
+  em: ({ children, ...props }) => (
+    <em className={styles.markdownEmphasis} {...props}>
+      {children}
+    </em>
+  ),
+  
+  strong: ({ children, ...props }) => (
+    <strong className={styles.markdownStrong} {...props}>
+      {children}
+    </strong>
+  ),
+  
+  // Enhanced blockquote
+  blockquote: ({ children, ...props }) => (
+    <blockquote className={styles.markdownBlockquote} {...props}>
+      {children}
+    </blockquote>
+  ),
+  
+  // Enhanced code blocks
+  code: ({ inline, children, ...props }) => {
+    if (inline) {
+      return (
+        <code className={styles.markdownInlineCode} {...props}>
+          {children}
+        </code>
+      )
+    }
+    return (
+      <pre className={styles.markdownCodeBlock}>
+        <code {...props}>{children}</code>
+      </pre>
+    )
+  },
+  
+  // Enhanced links
+  a: ({ children, href, ...props }) => (
+    <a 
+      className={styles.markdownLink} 
+      href={href} 
+      target="_blank" 
+      rel="noopener noreferrer"
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+
+  // Horizontal rule
+  hr: (props) => <hr className={styles.markdownHorizontalRule} {...props} />,
+}
 
 export default function ChatBox({ 
   userEmail, 
   onTokenUsed, 
   onEstimateCost, 
   estimateTokens,
-  hideControls = false,     // Add this prop
-  showEnhanced = true,      // Add this prop
-  showClear = true,         // Add this prop
-  showExport = true         // Add this prop
+  hideControls = false,  showEnhanced = true,  showClear = true,  showExport = true,  onMemoryStatusCheck,
+  onClearChat,
+  isEnhancedMode = false,
+  enhancedContext = null
 }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(true) // Start with loading state
-  const [showWarning, setShowWarning] = useState(false)
-  const [userData, setUserData] = useState(null)
+  const [isLoading, setIsLoading] = useState(false) // Start with loading state
   const [savingFavorite, setSavingFavorite] = useState(null) // Track which message is being saved
   const [savedFavorites, setSavedFavorites] = useState(new Set()) // Track which messages have been saved
+  const [copiedMessage, setCopiedMessage] = useState(null)
   const [chatInitialized, setChatInitialized] = useState(false) // Track if chat has been initialized
   const [chatRestored, setChatRestored] = useState(false) // Track if chat was restored from storage
   const bottomRef = useRef(null)
+  const messagesEndRef = useRef(null)
+  const [showWarning, setShowWarning] = useState(false);
 
   // Generate session storage key for this user's chat
   const getChatStorageKey = () => `askme_chat_${userEmail}`
@@ -619,6 +720,22 @@ export default function ChatBox({
     }
   };
 
+  // Copy message to clipboard
+  const copyMessage = async (content, messageIndex) => {
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedMessage(messageIndex)
+      setTimeout(() => setCopiedMessage(null), 2000)
+    } catch (err) {
+      console.error('Failed to copy message:', err)
+    }
+  }
+
+  // Jump to latest message
+  const jumpToLatest = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   // Save chat state whenever messages change
   useEffect(() => {
     if (chatInitialized && messages.length > 0) {
@@ -679,9 +796,9 @@ export default function ChatBox({
         </div>
       )}
 
-      {/* Messages Area */}
-      <div className="messages-area">
-        <div className="messages-content">
+      {/* Enhanced Messages Area */}
+      <div className={styles.messagesArea}>
+        <div className={styles.messagesContent}>
           {/* Chat Restored Indicator */}
           {chatRestored && messages.length > 0 && (
             <div className="chat-restored-banner">
@@ -717,15 +834,19 @@ export default function ChatBox({
               }`}>
                 <div className={styles.messageContent}>
                   {msg.role === 'assistant' && !msg.error ? (
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    <ReactMarkdown components={MarkdownComponents}>{msg.content}</ReactMarkdown>
                   ) : (
                     msg.content
                   )}
-                </div>                <div className={styles.messageMeta}>
-                  <small className={styles.messageTime}>{msg.time}</small>
-                  {msg.tokensUsed > 0 && (
-                    <small className={styles.messageTokens}>{msg.tokensUsed} tokens</small>
-                  )}
+                </div>
+                
+                <div className={styles.messageMeta}>
+                  <div className={styles.messageInfo}>
+                    <small className={styles.messageTime}>{msg.time}</small>
+                    {msg.tokensUsed > 0 && (
+                      <small className={styles.messageTokens}>{msg.tokensUsed} tokens</small>
+                    )}
+                  </div>
                   
                   {/* Show Continue button for chunked responses */}
                   {msg.isPartial && msg.conversationId && (
@@ -757,29 +878,49 @@ export default function ChatBox({
                   )}
 
                   {msg.role === 'assistant' && !msg.error && (
-                    <button
-                      onClick={() => saveToFavorites(msg.content, idx)}
-                      disabled={savingFavorite === idx}
-                      title="Save to favorites"
-                      className={`favorite-button ${savedFavorites.has(idx) ? 'saved' : ''}`}
-                    >
-                      {savingFavorite === idx ? (
-                        <svg width="12" height="12" className="loading-spinner" viewBox="0 0 16 16">
-                          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="37.7" strokeDashoffset="37.7">
-                            <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 8 8;360 8 8"/>
-                          </circle>
-                        </svg>
-                      ) : savedFavorites.has(idx) ? (
-                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16" className="checkmark-icon">
-                          <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
-                        </svg>
-                      ) : (
-                        <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
-                          <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
-                        </svg>
-                      )}
-                      {savedFavorites.has(idx) ? 'Saved!' : 'Save'}
-                    </button>
+                    <div className={styles.messageActions}>
+                      <button
+                        onClick={() => copyMessage(msg.content, idx)}
+                        title="Copy message"
+                        className={`${styles.copyButton} ${copiedMessage === idx ? styles.copied : ''}`}
+                      >
+                        {copiedMessage === idx ? (
+                          <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                          </svg>
+                        ) : (
+                          <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                            <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+                          </svg>
+                        )}
+                        {copiedMessage === idx ? 'Copied!' : 'Copy'}
+                      </button>
+                      
+                      <button
+                        onClick={() => saveToFavorites(msg.content, idx)}
+                        disabled={savingFavorite === idx}
+                        title="Save to favorites"
+                        className={`${styles.favoriteButton} ${savedFavorites.has(idx) ? styles.saved : ''}`}
+                      >
+                        {savingFavorite === idx ? (
+                          <svg width="12" height="12" className={styles.loadingSpinner} viewBox="0 0 16 16">
+                            <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="37.7" strokeDashoffset="37.7">
+                              <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 8 8;360 8 8"/>
+                            </circle>
+                          </svg>
+                        ) : savedFavorites.has(idx) ? (
+                          <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
+                          </svg>
+                        ) : (
+                          <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M3.612 15.443c-.386.198-.824-.149-.746-.592l.83-4.73L.173 6.765c-.329-.314-.158-.888.283-.95l4.898-.696L7.538.792c.197-.39.73-.39.927 0l2.184 4.327 4.898.696c.441.062.612.636.282.95l-3.522 3.356.83 4.73c.078.443-.36.79-.746.592L8 13.187l-4.389 2.256z"/>
+                          </svg>
+                        )}
+                        {savedFavorites.has(idx) ? 'Saved!' : 'Save'}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -810,45 +951,83 @@ export default function ChatBox({
               </div>
             </div>
           )}        </div>
-        <div ref={bottomRef} />
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
-      <div className="chat-input-area">
-        {showWarning && (
-          <div className="warning-message">
-            ⚠️ This message may use many tokens. Consider shorter messages to reduce cost.
-          </div>
-        )}
-        <div className="input-container">
-          <textarea
-            className="message-input"
-            placeholder="Type a message..."
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            disabled={isLoading}
-            rows="1"
-          />
-          <button 
-            className="send-button" 
-            onClick={handleSend}
-            disabled={isLoading || !input.trim()}
-          >
-            {isLoading ? (
-              <svg width="16" height="16" className="loading-spinner" viewBox="0 0 16 16">
-                <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="37.7" strokeDashoffset="37.7">
-                  <animateTransform attributeName="transform" type="rotate" dur="1s" repeatCount="indefinite" values="0 8 8;360 8 8"/>
-                </circle>
-              </svg>
-            ) : (
-              <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                <path d="M15.854.146a.5.5 0 0 1 .11.54L13.026 8.47l2.938 7.784a.5.5 0 0 1-.648.648L7.532 14.026.146 16.854a.5.5 0 0 1-.54-.11l13.5-13.5a.5.5 0 0 1 .748-.098z"/>
-              </svg>
-            )}
-          </button>
+      {/* Enhanced Input Container */}
+      <div className={styles.inputContainer}>
+        {/* Markdown Hints */}
+        <div className={styles.markdownHints}>
+          <span className={styles.hintItem}>**bold**</span>
+          <span className={styles.hintItem}>*italic*</span>
+          <span className={styles.hintItem}>- list</span>
+          <span className={styles.hintItem}>`code`</span>
+          <span className={styles.hintItem}>---</span>
         </div>
-      </div>      <style jsx>{`
+        
+        {/* Enhanced Input Form */}
+        <form className={styles.inputForm} onSubmit={e => {
+          e.preventDefault();
+          handleSend();
+        }}>
+          <div className={styles.inputWrapper}>
+            <textarea
+              className={styles.chatInput}
+              placeholder="Type your message... (Shift+Enter for new line)"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              disabled={isLoading}
+              rows={1}
+              style={{
+                minHeight: '24px',
+                maxHeight: '120px',
+                resize: 'none',
+                overflow: 'hidden'
+              }}
+              onInput={e => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+              }}
+            />
+            
+            <button
+              type="submit"
+              className={styles.sendButton}
+              disabled={isLoading || !input.trim()}
+              aria-label="Send message"
+            >
+              {isLoading ? (
+                <div className={styles.loadingSpinner}>
+                  <div className={styles.spinner}></div>
+                </div>
+              ) : (
+                <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                  <path d="M15.854.146a.5.5 0 0 1 .11.54L13.026 8.5l2.938 7.814a.5.5 0 0 1-.11.54.5.5 0 0 1-.54.11L8 14.026.686 16.964a.5.5 0 0 1-.54-.11.5.5 0 0 1-.11-.54L2.974 8.5.036.686A.5.5 0 0 1 .146.036.5.5 0 0 1 .686.146L8 2.974 15.314.036a.5.5 0 0 1 .54.11z"/>
+                </svg>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+      
+      {/* Jump to Latest Button */}
+      {messages.length > 5 && (
+        <button
+          onClick={jumpToLatest}
+          className={styles.jumpToLatest}
+          aria-label="Jump to latest message"
+        >
+          <svg width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+            <path fillRule="evenodd" d="M1.553 6.776a.5.5 0 0 1 .67-.223L8 9.44l5.776-2.888a.5.5 0 1 1 .448.894l-6 3a.5.5 0 0 1-.448 0l-6-3a.5.5 0 0 1-.223-.67z"/>
+          </svg>
+        </button>
+      )}      <style jsx>{`
         .chat-container {
           display: flex;
           flex-direction: column;
@@ -1107,6 +1286,254 @@ export default function ChatBox({
         }
         
         .send-button:disabled {
+          background: #e5e7eb;
+          color: #9ca3af;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .loading-spinner {
+          animation: spin 1s linear infinite;
+        }
+          @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+          .favorite-button {
+          background: rgba(66, 133, 244, 0.1);
+          color: #4285f4;
+          border: 1px solid rgba(66, 133, 244, 0.3);
+          border-radius: 15px;
+          padding: 0.25rem 0.5rem;
+          font-size: 0.75rem;
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .favorite-button:hover:not(:disabled) {
+          background: rgba(66, 133, 244, 0.2);
+          border-color: rgba(66, 133, 244, 0.5);
+          transform: translateY(-1px);
+        }
+        
+        .favorite-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        
+        .favorite-button.saved {
+          background: rgba(34, 197, 94, 0.1);
+          color: #22c55e;
+          border-color: rgba(34, 197, 94, 0.3);
+        }
+        
+        .favorite-button.saved:hover:not(:disabled) {
+          background: rgba(34, 197, 94, 0.2);
+          border-color: rgba(34, 197, 94, 0.5);
+        }
+        
+        .checkmark-icon {
+          animation: checkmarkPop 0.4s ease-out;
+        }
+          @keyframes checkmarkPop {
+          0% {
+            transform: scale(0);
+            opacity: 0;
+          }
+          50% {
+            transform: scale(1.2);
+          }
+          100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes pulseSubtle {
+          0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+          }
+          50% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+          }
+        }
+        
+        .pulse-animation {
+          animation: pulseSubtle 2s infinite;
+        }
+          /* Responsive Design */
+        @media (max-width: 768px) {
+          .context-bar {
+            padding: 0.5rem 1rem;
+          }
+          
+          .context-actions {
+            gap: 0.375rem;
+          }
+          
+          .context-btn {
+            padding: 0.375rem 0.625rem;
+            font-size: 0.75rem;
+          }
+          
+          .session-info {
+            font-size: 0.75rem;
+            gap: 0.5rem;
+          }
+          
+          .chat-input-area {
+            padding: 1rem;
+          }
+          
+          .input-container {
+            gap: 0.5rem;
+            padding: 0.625rem 0.875rem;
+          }
+          
+          .send-button {
+            width: 42px;
+            height: 42px;
+          }
+          
+          .chat-restored-banner {
+            margin: 0.75rem 1rem;
+            padding: 0.75rem;
+          }
+          
+          .restored-content {
+            font-size: 0.8rem;
+            gap: 0.5rem;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .context-bar {
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+          }
+          
+          .context-actions {
+            order: 2;
+            justify-content: center;
+            flex-wrap: wrap;
+          }
+          
+          .session-info {
+            order: 1;
+            justify-content: center;
+          }
+        }        
+        /* Enhanced focus states for accessibility */
+        .message-input:focus,
+        .send-button:focus,
+        .favorite-button:focus,
+        .context-btn:focus,
+        .start-fresh-btn:focus {
+          outline: 3px solid rgba(16, 185, 129, 0.4);
+          outline-offset: 2px;
+        }
+        
+        /* Improved contrast for better readability */
+        @media (prefers-contrast: high) {
+          .favorite-button {
+            border-width: 2px;
+          }
+          
+          .context-btn {
+            border-width: 2px;
+          }
+          
+          .send-button {
+            border: 2px solid currentColor;
+          }
+        }
+        
+        /* Reduced motion for users who prefer it */
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+        
+        .chat-input-area {
+          padding: 1.5rem;
+          background: transparent;
+        }
+        .chat-input-form {
+          display: flex;
+          align-items: center;
+          background: #fff;
+          border: 2px solid #2dd4bf;
+          border-radius: 2rem;
+          box-shadow: 0 2px 8px rgba(45, 212, 191, 0.08);
+          padding: 0.25rem 1rem 0.25rem 1.25rem;
+          transition: box-shadow 0.2s;
+        }
+        .chat-input-form:focus-within {
+          box-shadow: 0 4px 16px rgba(45, 212, 191, 0.18);
+          border-color: #14b8a6;
+        }
+        .chat-input {
+          flex: 1;
+          border: none;
+          outline: none;
+          resize: none;
+          font-size: 0.95rem;
+          line-height: 1.5;
+          font-family: inherit;
+          background: transparent;
+          min-height: 24px;
+          max-height: 120px;
+          overflow-y: auto;
+          color: #374151;
+        }
+        
+        .chat-input:disabled {
+          color: #6b7280;
+          cursor: not-allowed;
+        }
+        
+        .chat-input::placeholder {
+          color: #9ca3af;
+          font-weight: 400;
+        }
+          .send-btn {
+          background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+          color: white;
+          border: none;
+          width: 48px;
+          height: 48px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          flex-shrink: 0;
+          box-shadow: 0 4px 16px rgba(16, 185, 129, 0.25);
+        }
+        
+        .send-btn:hover:not(:disabled) {
+          background: linear-gradient(135deg, #059669 0%, #047857 100%);
+          transform: scale(1.05) translateY(-2px);
+          box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+        }
+        
+        .send-btn:focus {
+          outline: 3px solid rgba(16, 185, 129, 0.4);
+          outline-offset: 2px;
+        }
+        
+        .send-btn:disabled {
           background: #e5e7eb;
           color: #9ca3af;
           cursor: not-allowed;
