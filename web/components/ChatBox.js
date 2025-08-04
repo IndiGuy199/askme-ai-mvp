@@ -114,12 +114,13 @@ export default function ChatBox({
 }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false) // Start with loading state
-  const [savingFavorite, setSavingFavorite] = useState(null) // Track which message is being saved
-  const [savedFavorites, setSavedFavorites] = useState(new Set()) // Track which messages have been saved
+  const [isLoading, setIsLoading] = useState(false)
+  const [savingFavorite, setSavingFavorite] = useState(null)
+  const [savedFavorites, setSavedFavorites] = useState(new Set())
   const [copiedMessage, setCopiedMessage] = useState(null)
-  const [chatInitialized, setChatInitialized] = useState(false) // Track if chat has been initialized
-  const [chatRestored, setChatRestored] = useState(false) // Track if chat was restored from storage
+  const [chatInitialized, setChatInitialized] = useState(false)
+  const [chatRestored, setChatRestored] = useState(false)
+  const [userData, setUserData] = useState(null) // <-- Add this line
   const bottomRef = useRef(null)
   const messagesEndRef = useRef(null)
   const [showWarning, setShowWarning] = useState(false);
@@ -233,7 +234,7 @@ export default function ChatBox({
         console.error('Error initializing chat:', err)
         setMessages([{
           role: 'assistant',
-          content: 'Hello! Welcome to AskMe AI. How can I help you today?',
+           content: `Hello${userData?.firstName ? `, ${userData.firstName}` : ''}! Welcome to AskMe AI. How can I help you today?`,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           tokensUsed: 0
         }])

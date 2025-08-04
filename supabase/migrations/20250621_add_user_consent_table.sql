@@ -319,3 +319,7 @@ COMMENT ON COLUMN public.user_consent.is_active IS 'Whether this consent record 
 -- Create indexes for performance on new columns
 CREATE INDEX IF NOT EXISTS idx_user_consent_fingerprint ON public.user_consent USING hash(browser_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_user_consent_text_search ON public.user_consent USING gin(to_tsvector('english', terms_text || ' ' || privacy_text));
+
+ALTER TABLE public.users 
+ADD COLUMN IF NOT EXISTS primary_category TEXT,
+ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN DEFAULT FALSE;

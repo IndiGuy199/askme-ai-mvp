@@ -1999,7 +1999,6 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
     console.error('Error in POST request handler:', error);
     return res.status(500).json({ error: 'Internal server error', details: error.message });
   }
- } // This closes the "if (req.method === 'POST')" block
 }
 
 // Helper: Check if message contains substantial content
@@ -2033,6 +2032,7 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
       message?.toLowerCase().includes(keyword)
     );
   };
+  
   if (intent === 'MEDICAL_URGENCY' || (conversationState?.lastUserMessage && detectMedicalUrgency(conversationState.lastUserMessage))) {
     return basePrompt + '\n\nMEDICAL PRIORITY: Detect and respond to medical urgency. If symptoms are serious, recommend professional help immediately. ("That sounds serious. Please [call doctor/ER/crisis line]. While you\'re getting help, I\'m here emotionally for you.")';
   }
@@ -2045,8 +2045,7 @@ function addIntentModifier(basePrompt, intent, conversationState = null) {
   if (conversationState?.consecutiveQuestions >= 3) {
     return basePrompt + '\n\nQUESTION FATIGUE: User asked multiple questions. Give concrete guidance. Reference what they\'ve already shared.'; 
   }
-  // (other special-case modifiers unchanged...)
-
+  
   // Step 2: Define tiered formats (efficient for tokens)
   const formats = {
     long: `
@@ -2074,74 +2073,84 @@ Respond in 1 short paragraph: Validate user's feeling, offer a single insight or
     responseFormat = formats.short;
   }
 
+  /*
+  // COMMENTED INTENT CODE BLOCK - RESTORE AS REQUESTED
+  // This is the detailed intent-based customization that was previously implemented
+  // Keeping it commented for potential future use or reference
+  
+  // Advanced intent-based response customization
+  switch (intent) {
+    case 'FRUSTRATED':
+      return basePrompt + '\n\nCRITICAL OVERRIDE: User is frustrated. Acknowledge this immediately. Say "I hear your frustration. Let me give you something concrete to try right now." Provide 2-3 specific, actionable steps. NO exploratory questions.';
+      
+    case 'MEDICAL_URGENCY':
+      return basePrompt + '\n\nMEDICAL PRIORITY: This may be a medical emergency. Respond with: "This sounds serious and may need immediate professional attention. Please consider calling your doctor, emergency services, or a crisis helpline. While you\'re getting help, I\'m here to support you emotionally."';
+      
+    case 'REPEAT_ADVICE_REQUEST':
+      return basePrompt + '\n\nREPEAT REQUEST DETECTED: User has asked for similar advice before. Acknowledge this and provide fresh, specific alternatives. Say: "I understand you\'re looking for different approaches. Here are some specific alternatives..." Give 2-3 concrete, actionable suggestions without extensive exploration.';
+      
+    case 'ADVICE_REQUEST':
+      return basePrompt + '\n\nADVICE FOCUS: User wants practical guidance. Structure response as: 1) Brief validation of their situation, 2) 2-3 specific, actionable suggestions, 3) One gentle follow-up question about which approach feels most doable.';
+      
+    case 'FOLLOW_UP_ADVICE':
+      return basePrompt + '\n\nFOLLOW-UP GUIDANCE: User is building on previous advice. Reference their progress and provide next-level strategies. Say: "It sounds like you\'re making progress. Here are some ways to build on what you\'ve already tried..."';
+      
+    case 'EMOTIONAL_SHARING':
+      return basePrompt + '\n\nEMOTIONAL SUPPORT MODE: User is sharing feelings and needs validation. Respond with deep empathy. Structure: 1) Reflect their emotions accurately, 2) Validate the difficulty of their experience, 3) Offer gentle perspective or reframe, 4) Ask about their support systems or coping strategies.';
+      
+    case 'SIMPLE_EMOTIONAL_SHARING':
+      return basePrompt + '\n\nGENTLE VALIDATION: User shared emotions but may want lighter support. Acknowledge their feelings warmly, offer brief perspective, and ask a gentle follow-up question about how they\'re coping.';
+      
+    case 'META_CONVERSATION':
+      return basePrompt + '\n\nMETA DISCUSSION: User is talking about the conversation itself, the coaching process, or their therapy journey. Be reflective and collaborative. Explore their experience of the process and what\'s working for them.';
+      
+    case 'EXPLORATION_PREFERENCE':
+      return basePrompt + '\n\nEXPLORATIVE MODE: User prefers self-discovery over direct advice. Use gentle questions to help them explore. Say: "Let\'s explore this together..." Ask open-ended questions that help them discover their own insights.';
+      
+    case 'ADVICE_FOCUSED':
+      return basePrompt + '\n\nDIRECT GUIDANCE: User wants clear, practical advice. Be specific and action-oriented. Provide concrete steps they can take today.';
+      
+    case 'GENERAL_CONVERSATION':
+      return basePrompt + '\n\nCONVERSATIONAL FLOW: Maintain natural dialogue while staying therapeutically supportive. Match their energy and gradually guide toward helpful insights.';
+      
+    case 'DIAGNOSTIC_REQUEST':
+      return basePrompt + '\n\nCLARIFICATION NEEDED: User wants diagnosis or analysis. Gently redirect: "While I can\'t diagnose, I can help you understand patterns and explore what might be contributing to what you\'re experiencing. Let\'s look at..."';
+      
+    case 'FOLLOW_UP_ADVICE_REQUEST':
+      return basePrompt + '\n\nCONTINUED GUIDANCE: User wants to build on previous advice. Reference their journey and provide progressive strategies.';
+      
+    case 'CONTEXT_SHARING':
+      return basePrompt + '\n\nCONTEXT BUILDING: User is providing background. Listen actively and help them see patterns. Ask clarifying questions that help build understanding.';
+      
+    case 'EMOTIONAL_SHARING_WITH_VALIDATION':
+      return basePrompt + '\n\nDEEP VALIDATION NEEDED: User needs strong emotional support. Provide empathetic reflection and normalize their experience. Use phrases like "That makes complete sense" and "Anyone would feel..."';
+      
+    case 'BOUNDARY_RESPECT':
+      return basePrompt + '\n\nRESPECT BOUNDARIES: User has indicated limits. Acknowledge and respect their boundaries. Say: "I hear you, and I respect that boundary. Let\'s focus on what feels comfortable for you."';
+      
+    case 'ADVICE_REJECTION':
+      return basePrompt + '\n\nADVICE DECLINED: User has rejected previous suggestions. Don\'t repeat similar advice. Instead, explore what would feel more helpful or try a completely different approach.';
+      
+    case 'FALLBACK_REQUEST':
+      return basePrompt + '\n\nALTERNATIVE APPROACH: Previous strategies haven\'t worked. Acknowledge this and pivot to different types of support or strategies.';
+      
+    case 'CHOICE_REQUEST':
+      return basePrompt + '\n\nDECISION SUPPORT: User needs help choosing between options. Help them explore the pros and cons, their values, and what feels right for them.';
+      
+    case 'DIRECT_ADVICE_REQUEST':
+      return basePrompt + '\n\nDIRECT REQUEST: User wants specific advice. Be clear and actionable while maintaining therapeutic warmth.';
+      
+    default:
+      break;
+  }
+  */
+
   // Step 4: Attach to base prompt (only for emotional/advice/general intents)
-  // (Feel free to expand this as needed for more granular intent mapping.)
   const deepIntents = [
     'EMOTIONAL_SHARING', 'SIMPLE_EMOTIONAL_SHARING', 'EMOTIONAL_SHARING_WITH_VALIDATION',
     'ADVICE_REQUEST', 'FOLLOW_UP_ADVICE', 'ADVICE_FOCUSED', 'GENERAL_CONVERSATION'
   ];
-     
-  /*  if (intent === 'DIAGNOSTIC_REQUEST'){
-     return basePrompt + '\n' +  '\n\nDIAGNOSTIC RESPONSE: User wants step-by-step guidance to diagnose the issue. Provide a clear process with 3-5 steps, explain each briefly, and invite the user to try them. Example: "Here are some ways to explore the cause: 1. Self-reflection, 2. Journaling, 3. Talking to a trusted friend, 4. Professional assessment, 5. Tracking patterns." End with: "Would you like to start with one of these or discuss more options?"';
-
-     } else if (intent === 'FOLLOW_UP_ADVICE_REQUEST'){
-     return basePrompt  + '\n\nFOLLOW_UP_ADVICE: User wants additional/different techniques for same issue. Say: "In addition to what we\'ve discussed, here are some other strategies you might try:" and provide NEW techniques that are different from previous suggestions. Be concrete and actionable.';
-
-      } else if (intent === 'SIMPLE_EMOTIONAL_SHARING'){
-     return basePrompt  +  '\n\nSIMPLE EMOTIONAL VALIDATION: User shared basic emotional state ("feeling down lately") without asking for advice. Start with validation: "That sounds really tough." Then ask ONE exploratory question: "What\'s been making you feel this way?" Do NOT offer advice, coping strategies, or choices unless requested. Focus purely on exploration and understanding.';
-    
-      }else if (intent === 'CONTEXT_SHARING'){
-    return basePrompt  +  '\n\nCONTEXT SHARING RESPONSE: User provided specific context about their situation (sleep troubles, work stress). Acknowledge what they shared, then offer explicit choice: "Would you like to explore what\'s happening with your sleep and work stress more, or are you looking for some practical advice and strategies to help manage these issues?" Must clearly mention BOTH exploration AND advice/strategies as options.';
-    
-      } else if (intent === 'EMOTIONAL_SHARING_WITH_VALIDATION'){
-       return basePrompt  +  '\n\nSTRONG VALIDATION REQUIRED: User shared serious emotional state like hopelessness. CRITICAL: Start with strong emotional validation first: "I\'m really sorry you\'re experiencing that. Feeling hopeless can be incredibly difficult and overwhelming." THEN offer choice: "Would you like to talk more about what\'s contributing to these feelings, or are you looking for some coping strategies to help when this happens?" Validation must come BEFORE choices.';
-   
-      }else if (intent === 'EXPLORATION_PREFERENCE')
-     return basePrompt  + '\n\nEXPLORATION PREFERRED: User explicitly stated they want to vent/talk rather than get advice. Show strong respect for their preference. Say: "Of course, I\'m here to listen. Feel free to share what\'s on your mind, and we can take it at whatever pace feels right for you." Focus on listening and understanding, NOT advice.';
-    
-    else if (intent === 'FRUSTRATED')
-    return basePrompt  + '\n\nFRUSTRATION RESPONSE: User is frustrated. You MUST apologize ("I\'m sorry for repeating myself"). Offer to reset the conversation. Then provide immediate, concrete advice. NO questions.';
-    
-    else if (intent === 'META_CONVERSATION')
-    return basePrompt  +  '\n\nIMPORTANT: User wants to change how the conversation works. Address their concern about the conversation style directly. Examples: bullet points, shorter responses, different approach. Say "Absolutely!" and adapt immediately.';
-    
-    else if (intent === 'MEDICAL_URGENCY')
-    return basePrompt  +  '\n\nMEDICAL PROTOCOL: For serious symptoms, immediately recommend professional help. Then offer emotional support. Format: "That sounds serious - chest pain needs immediate attention. Please call your doctor right away or go to the emergency room. While you\'re getting medical help, I want you to know I\'m here to support you emotionally through this."';
-    
-    else if (intent === 'BOUNDARY_RESPECT')
-    return basePrompt  + '\n\nBOUNDARY RESPECT: User set a boundary about a topic. Immediately respect it. Say: "Of course, I understand. We can focus on whatever feels most comfortable for you. Is there another area you\'d like to work on?" Never push the topic they declined.';
-    
-    else if (intent === 'ADVICE_REJECTION')
-    return basePrompt  + '\n\nADVICE REJECTED: User said previous advice doesn\'t work. CRITICAL: Be positive and supportive. Say: "I really appreciate you letting me know that approach isn\'t working for you - that\'s valuable feedback. Let me suggest some completely different strategies..." Then offer different approaches. Never ask why it didn\'t work or push the same advice.';    
-   
-    else if (intent === 'FALLBACK_REQUEST')
-    return basePrompt  + '\n\nFALLBACK NEEDED: User says nothing is helping and needs different approach. Say: "Let me suggest some completely different strategies that might help with your [specific issue]:" then list fundamentally different techniques. Focus on alternative methods they haven\'t tried.';
-    
-    else if (intent === 'CHOICE_REQUEST')
-    return basePrompt  +'\n\nCHOICE OFFERING: User wants options to choose from. Provide clear alternatives with explicit choice language. Format: "You have a few different options here: Option 1: [specific approach for sleep] Option 2: [different approach for stress] Option 3: [combined approach]. Which of these sounds most helpful to you right now, or would you like me to explain any of these in more detail?"';
-    
-    else if (intent === 'DIRECT_ADVICE_REQUEST')
-    return basePrompt  +'\n\nDIRECT ADVICE: User explicitly wants immediate concrete advice for specific conditions. Address their exact issues mentioned. Format: "For anxiety and depression, here are some strategies that can help: 1. [specific technique for anxiety] 2. [specific technique for depression] 3. [technique for both]. Would you like to start with one of these, or would you prefer to talk more about what you\'re experiencing first?"';
-    
-    else if (intent ===  'REPEAT_ADVICE_REQUEST')
-     return basePrompt  + '\n\nREPEAT REQUEST: User asking for advice again or saying current advice isn\'t working. Provide immediate concrete NEW suggestions. Say: "Let me suggest some different approaches..." Don\'t repeat previous advice. ADVICE REQUEST: User explicitly wants advice. First acknowledge their specific conditions/issues mentioned. Then provide 2-3 specific, actionable suggestions addressing those exact issues. End with: "Would you like to focus on one of these approaches, or would you prefer to talk more about what you\'re experiencing?"';
-    
-    else if (intent ===  'FOLLOW_UP_ADVICE')
-    return basePrompt  + '\n\nFOLLOW-UP ADVICE: User wants additional advice for same issue. Say "Here are some additional strategies for [specific issue]..." and provide NEW techniques. Don\'t repeat previous suggestions. Be concrete and actionable.';
-    
-
-    else if (intent ===  'EMOTIONAL_SHARING' && conversationState?.dominantIntent === 'EMOTIONAL_FOCUSED')
-        return basePrompt  +'\n\nEMOTIONAL SUPPORT MODE: User explicitly wants emotional support. Validate their feelings first: "That sounds really hard." Then ask how you can best support them: "Would you like to talk more about what\'s going on, or are you looking for some strategies to help you cope?"';
-    
-    else if (intent ===  'EMOTIONAL_SHARING')
-    return basePrompt  + '\n\nEMOTION VALIDATION: User sharing emotions like hopelessness. Validate feelings first: "That sounds really difficult to experience." Then offer BOTH options: "Would you like to talk more about what\'s been making you feel this way, or are you looking for some coping strategies to help when these feelings come up? I can help with either approach."';
-    
-    else if (intent ===  'ADVICE_FOCUSED')
-    return basePrompt  +  '\n\nSOLUTION MODE: User is solution-oriented. Provide practical guidance. Only ask questions if essential for better advice.';
-    
-     else if (intent ===  'GENERAL_CONVERSATION')
-    return basePrompt  +  '\n\nIMPORTANT: Maintain therapeutic depth. Balance listening with solutions. For emotional content, ask 2–3 gentle, open-ended questions before offering choices. Never rush to advice. Reference user’s emotional state and history if available.';
-  };*/
+  
   if (deepIntents.includes(intent)) {
     return basePrompt + '\n' + responseFormat;
   }
@@ -2149,10 +2158,10 @@ Respond in 1 short paragraph: Validate user's feeling, offer a single insight or
   // Default fallback
   return basePrompt;
 }
+}
 
 // Export as default for Next.js API route
 export default withErrorHandling(gptRouterHandler);
-// filepath: c:\opt\mvp\web\pages\api\gptRouter.js
 
 // Helper: Simple relevance scoring (can be replaced with semantic similarity)
 function isRelevantToCurrent(msg, currentMessage) {
@@ -2192,3 +2201,4 @@ function summarizeMessage(msg) {
   // Limit summary to ~200 characters for efficiency
   return summary.length > 200 ? summary.substring(0, 197) + '...' : summary;
 }
+
