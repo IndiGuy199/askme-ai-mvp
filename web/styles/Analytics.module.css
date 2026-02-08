@@ -1,0 +1,160 @@
+/* Analytics Components Styles */
+
+.weekly-analytics-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: white;
+  min-height: 280px;
+  transition: all 0.2s ease;
+}
+
+.weekly-analytics-card:hover {
+  box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.weekly-analytics-card .card-header {
+  border-bottom: 1px solid #f1f5f9;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px 12px 0 0;
+  padding: 1rem 1.25rem;
+}
+
+.weekly-analytics-card .card-title {
+  font-weight: 600;
+  color: #334155;
+  font-size: 1.1rem;
+}
+
+.weekly-analytics-card .card-body {
+  padding: 1.5rem 1.25rem;
+  min-height: 180px;
+}
+
+.weekly-analytics-card .card-footer {
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+  border-radius: 0 0 12px 12px;
+  padding: 0.75rem 1.25rem;
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.loading-state .spinner-border {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+/* Error State */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.error-state i {
+  opacity: 0.6;
+}
+
+/* No Data State */
+.no-data-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.no-data-state i {
+  opacity: 0.5;
+}
+
+.no-data-state .alert {
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+/* Data Content */
+.data-content {
+  animation: fadeIn 0.3s ease-in;
+}
+
+.data-content .progress {
+  border-radius: 10px;
+  background-color: #f1f5f9;
+}
+
+.data-content .progress-bar {
+  border-radius: 10px;
+  transition: width 0.6s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .weekly-analytics-card {
+    min-height: 250px;
+  }
+  
+  .weekly-analytics-card .card-body {
+    padding: 1rem;
+    min-height: 150px;
+  }
+  
+  .weekly-analytics-card .card-title {
+    font-size: 1rem;
+  }
+}
+
+/* Analytics Dashboard specific styles */
+.analytics-dashboard {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  min-height: 100vh;
+}
+
+.analytics-header {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.analytics-grid {
+  gap: 1.5rem;
+}
+
+.analytics-status-badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+/* PostHog specific styling */
+.posthog-status {
+  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.posthog-test-section {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 12px;
+}

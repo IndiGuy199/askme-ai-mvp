@@ -51,6 +51,7 @@ export default function ProfileSetup() {
     city: '',
     country: '',
     selectedChallenges: [],
+    challengeSeverities: {}, // Per-challenge severity: { challenge_id: 'occasional' | 'growing' | ... }
     // Updated consent fields to match new content
     ageConfirmed: false,
     termsAccepted: false,
@@ -59,6 +60,7 @@ export default function ProfileSetup() {
   })
   const [loading, setLoading] = useState(false)
   const [challengesLoading, setChallengesLoading] = useState(false)
+  const [reassuranceChallenge, setReassuranceChallenge] = useState(null)
   const router = useRouter()
 
   // Load categories on mount
@@ -140,17 +142,43 @@ export default function ProfileSetup() {
     setFormData(prev => ({ ...prev, selectedChallenges: [] }))
     setAvailableChallenges([]) // Clear previous challenges
     loadChallengesForCategory(category.id)
-    setCurrentStep(2)
+    setCurrentStep(3) // Go directly to challenges selection
   }
 
   const handleChallengeToggle = (challengeId) => {
-    setFormData(prev => ({
-      ...prev,
-      selectedChallenges: prev.selectedChallenges.includes(challengeId)
+    setFormData(prev => {
+      const isSelected = prev.selectedChallenges.includes(challengeId)
+      const newChallenges = isSelected
         ? prev.selectedChallenges.filter(id => id !== challengeId)
         : [...prev.selectedChallenges, challengeId]
-    }))
+      // Remove severity for deselected challenge
+      const newSeverities = { ...prev.challengeSeverities }
+      if (isSelected) delete newSeverities[challengeId]
+      return { ...prev, selectedChallenges: newChallenges, challengeSeverities: newSeverities }
+    })
+    setReassuranceChallenge(null)
   }
+
+  const handleSeveritySelect = (challengeId, severity) => {
+    setFormData(prev => ({
+      ...prev,
+      challengeSeverities: { ...prev.challengeSeverities, [challengeId]: severity }
+    }))
+    setReassuranceChallenge(challengeId)
+    setTimeout(() => setReassuranceChallenge(null), 3000)
+  }
+
+  // Severity label → numeric level mapping
+  const SEVERITY_MAP = {
+    occasional: 1,
+    growing: 2,
+    compulsive: 3,
+    overwhelming: 4
+  }
+
+  // Check all selected challenges have a severity assigned
+  const allSeveritiesSelected = formData.selectedChallenges.length > 0 &&
+    formData.selectedChallenges.every(cid => formData.challengeSeverities[cid])
 
   const handleConsentChange = (consentType, value) => {
     setFormData(prev => ({
@@ -252,11 +280,18 @@ export default function ProfileSetup() {
       }
 
       // 3. Create user profile record
+      const severitySummary = Object.entries(formData.challengeSeverities)
+        .map(([cid, sev]) => {
+          const ch = availableChallenges.find(c => c.challenge_id === cid)
+          return `${ch?.label || cid}: ${sev}`
+        })
+        .join(', ')
+
       const { error: profileError } = await supabase
         .from('user_profiles')
         .upsert({
           user_id: user.id,
-          memory_summary: `${formData.firstName} is starting their journey with ${selectedCategory.label}. Selected challenges: ${formData.selectedChallenges.join(', ')}.`,
+          memory_summary: `${formData.firstName} is starting their journey with ${selectedCategory.label}. Selected challenges: ${formData.selectedChallenges.join(', ')}. Severity: ${severitySummary}.`,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         }, { onConflict: 'user_id' })
@@ -286,6 +321,63 @@ export default function ProfileSetup() {
           } else {
             console.log(`Successfully stored ${challengeRecords.length} challenge selections`)
           }
+
+          // 5. Insert severity assessments for each selected challenge
+          try {
+            const assessmentRecords = availableChallenges
+              .filter(c => formData.selectedChallenges.includes(c.challenge_id))
+              .map((challenge, index) => {
+                const severityLabel = formData.challengeSeverities[challenge.challenge_id]
+                return {
+                  user_id: user.id,
+                  coach_challenge_id: challenge.id, // UUID FK to coach_challenges
+                  assessment_source: 'onboarding',
+                  severity_level: SEVERITY_MAP[severityLabel],
+                  severity_label: severityLabel,
+                  severity_confidence: null, // User-reported; implicitly 1.0
+                  timeframe_days: 30,
+                  criteria_version: 'v1',
+                  is_user_reported: true,
+                  notes: 'Initial onboarding assessment',
+                  signals_json: {
+                    source: 'onboarding',
+                    challenge_id: challenge.challenge_id,
+                    challenge_label: challenge.label,
+                    category: selectedCategory.code,
+                    selected_index: index
+                  }
+                }
+              })
+              .filter(r => r.severity_level) // Skip if severity wasn't set
+
+            if (assessmentRecords.length > 0) {
+              const { error: assessError } = await supabase
+                .from('user_challenge_assessments')
+                .insert(assessmentRecords)
+
+              if (assessError) {
+                console.warn('Could not store severity assessments:', assessError)
+              } else {
+                console.log(`✅ Stored ${assessmentRecords.length} severity assessments (trigger auto-updates latest)`)
+
+                // Mark the first challenge as primary
+                const firstChallenge = availableChallenges.find(
+                  c => formData.selectedChallenges.includes(c.challenge_id)
+                )
+                if (firstChallenge) {
+                  const { error: primaryError } = await supabase.rpc('set_primary_challenge', {
+                    p_user_id: user.id,
+                    p_coach_challenge_id: firstChallenge.id
+                  })
+                  if (primaryError) console.warn('Could not set primary challenge:', primaryError)
+                  else console.log('✅ Primary challenge set')
+                }
+              }
+            }
+          } catch (assessErr) {
+            console.warn('Assessment storage error:', assessErr)
+          }
+
         } else {
           console.warn('No valid challenge UUIDs found for storage')
         }
@@ -324,7 +416,7 @@ export default function ProfileSetup() {
             </h1>
             <p className={styles.subtitle}>
               {currentStep === 1 && "Choose your primary area of focus to get specialized guidance"}
-              {currentStep === 2 && `Focusing on ${selectedCategory?.label}`}
+              {currentStep === 2 && `Focusing on ${selectedCategory?.label} - Tell us about yourself`}
               {currentStep === 3 && `Select the ${selectedCategory?.label.toLowerCase()} challenges you'd like to work on`}
               {currentStep === 4 && "Please review and accept our terms to complete your profile"}
             </p>
@@ -456,12 +548,20 @@ export default function ProfileSetup() {
                     <div className={styles.stepActions}>
                       <button 
                         type="button"
-                        className={styles.primaryButton}
+                        className={styles.secondaryButton}
                         onClick={() => setCurrentStep(3)}
+                      >
+                        <span className={styles.buttonIcon}>⬅️</span>
+                        Back
+                      </button>
+                      <button 
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => setCurrentStep(4)}
                         disabled={!formData.firstName || !formData.age}
                       >
                         <span className={styles.buttonIcon}>➡️</span>
-                        Next: Choose Your Challenges
+                        Next: Terms & Conditions
                       </button>
                     </div>
                   </div>
@@ -514,11 +614,63 @@ export default function ProfileSetup() {
                       )}
                     </div>
 
+                    {/* Per-Challenge Severity Selection */}
+                    {formData.selectedChallenges.map(challengeId => {
+                      const challenge = availableChallenges.find(c => c.challenge_id === challengeId)
+                      if (!challenge) return null
+                      const currentSeverity = formData.challengeSeverities[challengeId]
+                      return (
+                        <div key={challengeId} className={styles.severitySection}>
+                          <div className={styles.severityHeader}>
+                            <h4 className={styles.severityTitle}>
+                              How does <em>{challenge.label}</em> feel right now?
+                            </h4>
+                            <p className={styles.severitySubtitle}>Over the last 30 days — this helps us personalize your plan</p>
+                          </div>
+
+                          <div className={styles.severityGrid}>
+                            {[
+                              { key: 'occasional', icon: '〰️', label: 'Occasional', desc: 'It shows up sometimes.', bullets: ['It happens now and then', 'I\'m aware when it occurs'] },
+                              { key: 'growing', icon: '🌊', label: 'Growing', desc: 'It\'s becoming a pattern.', bullets: ['It\'s happening more often', 'I\'m starting to notice the impact'] },
+                              { key: 'compulsive', icon: '⚡', label: 'Compulsive', desc: 'I often struggle to stop.', bullets: ['It feels hard to control', 'It\'s affecting my daily life'] },
+                              { key: 'overwhelming', icon: '🌀', label: 'Overwhelming', desc: 'It feels out of control.', bullets: ['It dominates my thoughts', 'I need support to manage it'] }
+                            ].map(sev => (
+                              <button
+                                key={sev.key}
+                                type="button"
+                                className={[
+                                  styles.severityCard,
+                                  styles[`severity${sev.key.charAt(0).toUpperCase() + sev.key.slice(1)}`],
+                                  currentSeverity === sev.key ? styles.severitySelected : ''
+                                ].join(' ')}
+                                onClick={() => handleSeveritySelect(challengeId, sev.key)}
+                              >
+                                <div className={styles.severityIcon}>{sev.icon}</div>
+                                <h5 className={styles.severityLabel}>{sev.label}</h5>
+                                <p className={styles.severityDescription}>{sev.desc}</p>
+                                <ul className={styles.severityPoints}>
+                                  {sev.bullets.map((b, i) => <li key={i}>{b}</li>)}
+                                </ul>
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Per-challenge Reassurance */}
+                          {reassuranceChallenge === challengeId && currentSeverity && (
+                            <div className={styles.reassuranceMessage}>
+                              <span className={styles.reassuranceIcon}>💙</span>
+                              <p>Thank you for sharing. You're taking an important step, and we're here to help.</p>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+
                     <div className={styles.stepActions}>
                       <button 
                         type="button"
                         className={styles.secondaryButton}
-                        onClick={() => setCurrentStep(2)}
+                        onClick={() => setCurrentStep(1)}
                       >
                         <span className={styles.buttonIcon}>⬅️</span>
                         Back
@@ -526,11 +678,11 @@ export default function ProfileSetup() {
                       <button 
                         type="button"
                         className={styles.primaryButton}
-                        onClick={() => setCurrentStep(4)}
-                        disabled={formData.selectedChallenges.length === 0 || challengesLoading}
+                        onClick={() => setCurrentStep(2)}
+                        disabled={!allSeveritiesSelected || challengesLoading}
                       >
                         <span className={styles.buttonIcon}>➡️</span>
-                        Next: Terms & Conditions
+                        Next: Personal Information
                       </button>
                     </div>
                   </div>

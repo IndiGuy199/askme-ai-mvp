@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../utils/supabaseClient'
 import { useRouter } from 'next/router'
 import Layout from '../components/Layout'
@@ -9,6 +9,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [isClientReady, setIsClientReady] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+  const cooldownTimer = useRef(null)
   const router = useRouter()
   useEffect(() => {
     // Check if Supabase client is properly initialized
@@ -20,11 +22,41 @@ export default function Login() {
     }
   }, [])
 
-  const handleLogin = async (e) => {
+  // Initialize cooldown from localStorage (persists across refresh)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const until = Number(localStorage.getItem('otpCooldownUntil') || 0)
+    const now = Date.now()
+    if (until > now) setCooldown(Math.ceil((until - now) / 1000))
+  }, [])
+
+  // Tick down the cooldown every second
+  useEffect(() => {
+    if (cooldown <= 0) {
+      if (typeof window !== 'undefined') localStorage.removeItem('otpCooldownUntil')
+      return
+    }
+    clearTimeout(cooldownTimer.current)
+    cooldownTimer.current = setTimeout(() => setCooldown((s) => s - 1), 1000)
+    return () => clearTimeout(cooldownTimer.current)
+  }, [cooldown])
+
+  const startCooldown = (seconds = 45) => {
+    const s = Math.max(1, Number.isFinite(seconds) ? seconds : 45)
+    const until = Date.now() + s * 1000
+    if (typeof window !== 'undefined') localStorage.setItem('otpCooldownUntil', String(until))
+    setCooldown(s)
+  }
+
+  const secondsFromError = (msg) => {
+    const m = msg?.match(/after\s+(\d+)\s+seconds/i)
+    return m ? parseInt(m[1], 10) : 45
+  }
+
+  async function handleLogin(e) {
     e.preventDefault()
-    
-    if (!isClientReady) {
-      setMessage('Authentication service is not ready. Please refresh the page.')
+    if (cooldown > 0) {
+      setMessage(`Please wait ${cooldown}s before requesting another magic link.`)
       return
     }
 
@@ -33,24 +65,56 @@ export default function Login() {
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email: email,
+        email,
         options: {
-          emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001'}/auth/callback`,
-        },
+          emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`
+        }
       })
 
-      if (error) throw error
-      setMessage('Check your email for the login link!')
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('pendingEmail', email)
+      if (error) {
+        // Track auth error
+        try {
+          if (window.GenericAnalytics) {
+            window.GenericAnalytics.trackEvent('auth_error', {
+              type: 'otp_signin',
+              code: error.status || 429,
+              message: error.message || 'Unknown error'
+            })
+          }
+        } catch {}
+
+        if (/security purposes/i.test(error.message)) {
+          const secs = secondsFromError(error.message)
+          startCooldown(secs)
+          setMessage(`Please wait ${secs}s before requesting another login link.`)
+        } else {
+          setMessage(error.message || 'Login failed. Please try again.')
+        }
+        return
       }
-    } catch (error) {
-      console.error('Login error:', error)
-      setMessage(error.error_description || error.message || 'An error occurred. Please try again.')
+
+      // Success
+      setMessage('Check your email for the login link!')
+      try {
+        if (window.GenericAnalytics) {
+          window.GenericAnalytics.trackEvent('login_magic_link_sent', { email_domain: (email.split('@')[1] || '').toLowerCase() })
+        }
+      } catch {}
+      // Optional: start a short cooldown to prevent immediate re-requests
+      startCooldown(45)
+    } catch (err) {
+      setMessage('Unexpected error. Please try again.')
+      console.error('Login error:', err)
+      try {
+        if (window.GenericAnalytics) {
+          window.GenericAnalytics.trackEvent('auth_error', { type: 'otp_signin', message: String(err) })
+        }
+      } catch {}
     } finally {
       setLoading(false)
     }
   }
+
   return (
     <Layout title="Sign In - AskMe AI">
       <div className={styles.loginContainer}>
@@ -86,7 +150,7 @@ export default function Login() {
 
             <button
               type="submit"
-              disabled={loading || !email || !isClientReady}
+              disabled={loading || !email || !isClientReady || cooldown > 0}
               className={`${styles.loginButton} ${loading ? styles.loading : ''}`}
             >
               {loading ? (
@@ -97,10 +161,17 @@ export default function Login() {
               ) : (
                 <span className={styles.buttonContent}>
                   <span className={styles.buttonIcon}>✨</span>
-                  Send Magic Link
+                  {cooldown > 0 ? `Wait ${cooldown}s` : 'Send Magic Link'}
                 </span>
               )}
             </button>
+
+            {/* Optional inline cooldown/help text */}
+            {cooldown > 0 && (
+              <div className={styles.securityNote}>
+                Please wait {cooldown}s before requesting another email.
+              </div>
+            )}
 
             {/* Security Note */}
             <div className={styles.securityNote}>

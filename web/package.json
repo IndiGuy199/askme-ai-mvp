@@ -40,6 +40,10 @@
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
     "stripe": "^18.2.1",
-    "tiktoken": "^1.0.21"
+    "tiktoken": "^1.0.21",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

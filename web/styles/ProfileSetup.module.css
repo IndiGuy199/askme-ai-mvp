@@ -698,8 +698,227 @@
   padding: 2rem;
 }
 
+/* Severity Selection Styles */
+.severitySection {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 2px solid #e2e8f0;
+  animation: fadeIn 0.4s ease;
+}
+
+.severityHeader {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.severityTitle {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #1a202c;
+  margin-bottom: 0.5rem;
+}
+
+.severitySubtitle {
+  color: #64748b;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.severityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.severityCard {
+  background: white;
+  border: 3px solid transparent;
+  border-radius: 16px;
+  padding: 2rem 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  font-family: inherit;
+  position: relative;
+  overflow: hidden;
+}
+
+.severityCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.severityCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+.severitySelected {
+  border-color: currentColor !important;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.severitySelected::before {
+  opacity: 1;
+}
+
+/* Severity Level Colors */
+.severityOccasional {
+  color: #10b981;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+}
+
+.severityOccasional::before {
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.severityGrowing {
+  color: #f59e0b;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+.severityGrowing::before {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.severityCompulsive {
+  color: #ef4444;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+.severityCompulsive::before {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.severityOverwhelming {
+  color: #991b1b;
+  background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+}
+
+.severityOverwhelming::before {
+  background: linear-gradient(90deg, #991b1b, #dc2626);
+}
+
+.severityIcon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.severityLabel {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: inherit;
+}
+
+.severityDescription {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #475569;
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.severityPoints {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.severityPoints li {
+  font-size: 0.875rem;
+  color: #64748b;
+  padding: 0.35rem 0;
+  padding-left: 1.25rem;
+  position: relative;
+  line-height: 1.5;
+}
+
+.severityPoints li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: currentColor;
+  font-weight: bold;
+  font-size: 1.2rem;
+  line-height: 1.3;
+}
+
+/* Reassurance Message */
+.reassuranceMessage {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 2px solid #3b82f6;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  animation: slideDown 0.4s ease;
+  margin-top: 1.5rem;
+}
+
+.reassuranceIcon {
+  font-size: 1.75rem;
+  flex-shrink: 0;
+}
+
+.reassuranceMessage p {
+  margin: 0;
+  color: #1e40af;
+  font-size: 0.95rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Responsive improvements */
 @media (max-width: 768px) {
+  .severityGrid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .severityCard {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .severityIcon {
+    font-size: 2rem;
+  }
+
+  .severityLabel {
+    font-size: 1.1rem;
+  }
+
   .disclaimerBox {
     padding: 1.5rem;
     margin-bottom: 1rem;
@@ -729,6 +948,24 @@
 }
 
 @media (max-width: 480px) {
+  .severitySection {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+  }
+
+  .severityTitle {
+    font-size: 1.25rem;
+  }
+
+  .severityCard {
+    padding: 1.25rem 1rem;
+  }
+
+  .reassuranceMessage {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
   .disclaimerBox {
     padding: 1rem;
   }

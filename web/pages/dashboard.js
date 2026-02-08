@@ -116,9 +116,19 @@ export default function Dashboard() {
   }, []) // Remove router dependency
   
   const fetchUserData = async (email) => {
-    try {      setLoading(true)
+    try {
+      setLoading(true)
       console.log('Fetching user data for:', email)
       const response = await fetch(`/api/gptRouter?email=${encodeURIComponent(email)}`)
+      
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text()
+        console.error('API returned non-JSON response:', text.substring(0, 200))
+        throw new Error('Server returned invalid response. Please try again.')
+      }
+      
       const data = await response.json()
       
       if (response.ok) {
@@ -135,7 +145,8 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error fetching user data:', error)
-      showToast('Failed to load user data. Please refresh the page.', 'error')    } finally {
+      showToast('Failed to load user data. Please refresh the page.', 'error')
+    } finally {
       setLoading(false)
     }
   }
@@ -424,6 +435,14 @@ export default function Dashboard() {
     setSuggestingGoal(goalId)
 
     try {
+      // Check if userData is loaded
+      if (!userData) {
+        console.error('userData is null, cannot generate action')
+        showToast('User data not loaded. Please refresh the page.', 'error')
+        setSuggestingGoal(null)
+        return
+      }
+
       // Use dedicated generate-goals endpoint for action suggestions
       const response = await fetch('/api/generate-goals', {
         method: 'POST',

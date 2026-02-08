@@ -248,6 +248,45 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Either goalId or goalData is required' })
     }
 
+    if (req.method === 'PUT') {
+      const { email, goalId, isActive } = req.body
+      
+      if (!email || !goalId || typeof isActive !== 'boolean') {
+        return res.status(400).json({ error: 'Email, goalId, and isActive (boolean) are required' })
+      }
+
+      // Get user first
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .single()
+
+      if (userError) {
+        console.error('Error fetching user:', userError)
+        return res.status(404).json({ error: 'User not found' })
+      }
+
+      // Update the goal's active status
+      const { data: updatedGoal, error } = await supabase
+        .from('user_wellness_goals')
+        .update({ is_active: isActive })
+        .eq('id', goalId)
+        .eq('user_id', user.id)
+        .select()
+        .single()
+
+      if (error) {
+        console.error('Error updating goal:', error)
+        return res.status(500).json({ error: 'Failed to update goal' })
+      }
+
+      return res.status(200).json({ 
+        message: `Goal ${isActive ? 'activated' : 'deactivated'} successfully`,
+        goal: updatedGoal
+      })
+    }
+
     if (req.method === 'DELETE') {
       const { email, goalId } = req.body
       

@@ -96,6 +96,14 @@ export default function Layout({ children, title = 'AskMe AI', hideNavigation = 
                 <div className="collapse navbar-collapse" id="navbarNav">
                   <ul className="navbar-nav ms-auto d-flex gap-1">
                     <li className="nav-item">
+                      <Link href="/playbook" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
+                            style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
+                            onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}
+                            onMouseLeave={(e) => { e.target.style.backgroundColor = 'transparent'; e.target.style.color = '#4a5568' }}>
+                        <i className="bi bi-book me-1"></i>Playbook
+                      </Link>
+                    </li>
+                    <li className="nav-item">
                       <Link href="/dashboard" className="nav-link px-3 py-2 rounded-pill text-decoration-none" 
                             style={{ color: '#4a5568', fontWeight: '500', transition: 'all 0.2s ease' }}
                             onMouseEnter={(e) => { e.target.style.backgroundColor = '#f1f5f9'; e.target.style.color = '#2d3748' }}

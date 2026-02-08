@@ -1423,7 +1423,7 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
     try {
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, email, tokens, first_name, age, city, country, marital_status, created_at, coach_profile_id')
+        .select('id, email, tokens, first_name, age, city, country, marital_status, created_at, coach_profile_id, tone')
         .eq('email', email)
         .single()
 
@@ -1442,7 +1442,8 @@ async function updateMemorySummary(user_id, sessionEnd = false) {
         country: user.country,
         maritalStatus: user.marital_status,
         lastLogin: user.created_at,
-        coach_profile_id: user.coach_profile_id
+        coach_profile_id: user.coach_profile_id,
+        tone: user.tone || 'balanced'
       })
     } catch (error) {
       console.error('API error:', error)

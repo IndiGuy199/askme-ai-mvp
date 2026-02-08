@@ -5,7 +5,7 @@
  * It wraps the handler function to provide consistent error handling and logging.
  */
 
-import { logMemoryEvent } from './memoryLogger.js';
+const { logMemoryEvent } = require('./memoryLogger.js');
 
 /**
  * Wraps an API handler function with error handling and logging
@@ -35,15 +35,19 @@ function withErrorHandling(handler) {
         console.error('Failed to log API error:', logError);
       }
       
-      // Return a proper error response
-      res.status(500).json({ 
-        error: 'An unexpected error occurred',
-        message: process.env.NODE_ENV === 'production' 
-          ? 'Server error' 
-          : error.message
-      });
+      // Check if response was already sent
+      if (!res.headersSent) {
+        // Return a proper JSON error response
+        return res.status(500).json({ 
+          error: 'An unexpected error occurred',
+          message: process.env.NODE_ENV === 'production' 
+            ? 'Server error' 
+            : error.message
+        });
+      }
     }
   };
 }
 
-export { withErrorHandling };
+// CommonJS export
+module.exports = { withErrorHandling };
