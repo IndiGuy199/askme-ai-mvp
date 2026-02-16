@@ -28,8 +28,8 @@ export default function AuthCallback() {
           .single()
         
         if (userProfile?.profile_completed) {
-          console.log('✅ Profile complete, redirecting to dashboard')
-          router.replace('/dashboard')
+          console.log('✅ Profile complete, redirecting to playbook')
+          router.replace('/playbook')
         } else {
           console.log('📝 Profile incomplete, redirecting to setup')
           router.replace('/profile-setup')

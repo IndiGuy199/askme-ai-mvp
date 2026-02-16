@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Urge Support Protocol Test Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .controls {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 14px;
+        }
+        
+        select, button {
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 25px;
+        }
+        
+        .test-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: transform 0.3s;
+        }
+        
+        .test-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .test-header {
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .test-title {
+            font-size: 1.3em;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .request-info {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-duration {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        
+        .badge-track {
+            background: #fce4ec;
+            color: #c2185b;
+        }
+        
+        .badge-intensity {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        
+        .badge-context {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+        
+        .steps-container {
+            margin-top: 20px;
+        }
+        
+        .step {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 8px;
+        }
+        
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+        
+        .step-title {
+            flex: 1;
+            margin-left: 12px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .step-duration {
+            background: #764ba2;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .step-category {
+            background: #e0e0e0;
+            color: #555;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-left: 8px;
+            text-transform: capitalize;
+        }
+        
+        .step-instruction {
+            color: #666;
+            line-height: 1.6;
+            margin-top: 8px;
+            font-size: 14px;
+        }
+        
+        .close-section {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .close-title {
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+        
+        .close-instruction {
+            color: #666;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .stats {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            display: flex;
+            justify-content: space-around;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 Urge Support Protocol Test Viewer</h1>
+        
+        <div class="controls">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Duration (minutes)</label>
+                    <select id="duration">
+                        <option value="2">2 minutes</option>
+                        <option value="5">5 minutes</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Track</label>
+                    <select id="track">
+                        <option value="porn">Porn</option>
+                        <option value="sex">Sex</option>
+                        <option value="food">Food</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Intensity (1-10)</label>
+                    <select id="intensity">
+                        <option value="">Not specified</option>
+                        <option value="1">1 - Very Low</option>
+                        <option value="2">2</option>
+                        <option value="3">3 - Low</option>
+                        <option value="4">4</option>
+                        <option value="5">5 - Medium</option>
+                        <option value="6">6</option>
+                        <option value="7">7 - High</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10 - Very High</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Context</label>
+                    <select id="context">
+                        <option value="">Not specified</option>
+                        <option value="bed">Bed</option>
+                        <option value="home">Home</option>
+                        <option value="out">Out</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <button onclick="generateSingleProtocol()" id="singleBtn">Generate Protocol</button>
+                <button onclick="runAllTests()" id="allTestsBtn">Run All Test Scenarios</button>
+            </div>
+        </div>
+        
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-value" id="totalTests">0</div>
+                <div class="stat-label">Total Tests</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="avgSteps">0</div>
+                <div class="stat-label">Avg Steps</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="avgDuration">0s</div>
+                <div class="stat-label">Avg Duration</div>
+            </div>
+        </div>
+        
+        <div id="results" class="test-grid"></div>
+    </div>
+    
+    <script>
+        const API_URL = 'http://localhost:3000/api/coach/protocol';
+        
+        const testScenarios = [
+            // PORN TRACK — Low intensity (1-3): awareness & prevention
+            { durationMinutes: 2, track: 'porn', intensity: 1, context: 'bed' },
+            { durationMinutes: 2, track: 'porn', intensity: 2, context: 'home' },
+            { durationMinutes: 2, track: 'porn', intensity: 3, context: 'out' },
+            { durationMinutes: 5, track: 'porn', intensity: 1, context: 'home' },
+            { durationMinutes: 5, track: 'porn', intensity: 3, context: 'bed' },
+            
+            // PORN TRACK — Medium intensity (4-6): interrupt & delay
+            { durationMinutes: 2, track: 'porn', intensity: 4, context: 'home' },
+            { durationMinutes: 2, track: 'porn', intensity: 5, context: 'bed' },
+            { durationMinutes: 2, track: 'porn', intensity: 6, context: 'out' },
+            { durationMinutes: 5, track: 'porn', intensity: 4, context: 'bed' },
+            { durationMinutes: 5, track: 'porn', intensity: 5, context: 'home' },
+            { durationMinutes: 5, track: 'porn', intensity: 6, context: 'out' },
+            
+            // PORN TRACK — High intensity (7-10): containment & damage control
+            { durationMinutes: 2, track: 'porn', intensity: 7, context: 'bed' },
+            { durationMinutes: 2, track: 'porn', intensity: 8, context: 'home' },
+            { durationMinutes: 2, track: 'porn', intensity: 9, context: 'out' },
+            { durationMinutes: 2, track: 'porn', intensity: 10, context: 'bed' },
+            { durationMinutes: 5, track: 'porn', intensity: 7, context: 'home' },
+            { durationMinutes: 5, track: 'porn', intensity: 8, context: 'bed' },
+            { durationMinutes: 5, track: 'porn', intensity: 9, context: 'out' },
+            { durationMinutes: 5, track: 'porn', intensity: 10, context: 'bed' },
+            
+            // Edge cases — no intensity, no context
+            { durationMinutes: 2, track: 'porn', intensity: null, context: null },
+            { durationMinutes: 5, track: 'porn', intensity: null, context: null },
+            { durationMinutes: 2, track: 'porn', intensity: 8, context: null },
+            { durationMinutes: 5, track: 'porn', intensity: null, context: 'bed' },
+        ];
+        
+        async function generateProtocol(request) {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(request)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+            }
+            
+            return await response.json();
+        }
+        
+        function renderProtocol(request, response) {
+            const totalSeconds = response.steps ? response.steps.reduce((sum, step) => sum + step.seconds, 0) : 0;
+            const expectedRange = request.durationMinutes === 2 ? '90-120' : '240-300';
+            const [lo, hi] = expectedRange.split('-').map(Number);
+            const inRange = totalSeconds >= lo && totalSeconds <= hi;
+            
+            const categoryColors = {
+                grounding: '#4caf50',
+                interrupt: '#f44336',
+                friction: '#ff9800',
+                redirect: '#2196f3',
+                stabilize: '#9c27b0'
+            };
+            
+            return `
+                <div class="test-card">
+                    <div class="test-header">
+                        <div class="test-title">${response.title || 'Protocol'}</div>
+                        ${response.coachPersona ? `<div style="color: #764ba2; font-size: 13px; font-weight: 600; margin-bottom: 10px;">🧠 ${response.coachPersona}</div>` : ''}
+                        <div class="request-info">
+                            <span class="badge badge-duration">${request.durationMinutes} min</span>
+                            <span class="badge badge-track">${request.track}</span>
+                            ${request.intensity ? `<span class="badge badge-intensity">Intensity: ${request.intensity}</span>` : '<span class="badge" style="background:#eee;color:#999;">No intensity</span>'}
+                            ${request.context ? `<span class="badge badge-context">${request.context}</span>` : '<span class="badge" style="background:#eee;color:#999;">No context</span>'}
+                        </div>
+                    </div>
+                    
+                    <div class="steps-container">
+                        ${(response.steps || []).map((step, idx) => `
+                            <div class="step">
+                                <div class="step-header">
+                                    <div style="display: flex; align-items: center; flex: 1;">
+                                        <span class="step-number">${idx + 1}</span>
+                                        <span class="step-title">${step.title}</span>
+                                    </div>
+                                    <div>
+                                        <span class="step-duration">${step.seconds}s</span>
+                                        <span class="step-category" style="background:${categoryColors[step.category] || '#e0e0e0'}; color:white;">${step.category}</span>
+                                    </div>
+                                </div>
+                                <div class="step-instruction">${step.instruction}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    ${response.close && response.close.instruction ? `
+                        <div class="close-section">
+                            <div class="close-instruction">${response.close.instruction}</div>
+                        </div>
+                    ` : `
+                        <div class="close-section">
+                            <div class="close-instruction">You interrupted the cycle. That took strength.</div>
+                        </div>
+                    `}
+                    
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e0e0e0; color: #888; font-size: 13px; text-align: center;">
+                        ${(response.steps || []).length} steps &bull; ${totalSeconds}s total &bull; expected ${expectedRange}s
+                        ${inRange ? ' ✅' : ' ⚠️'}
+                    </div>
+                </div>
+            `;
+        }
+        
+        async function generateSingleProtocol() {
+            const request = {
+                durationMinutes: parseInt(document.getElementById('duration').value),
+                track: document.getElementById('track').value,
+                intensity: document.getElementById('intensity').value ? parseInt(document.getElementById('intensity').value) : null,
+                context: document.getElementById('context').value || null
+            };
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="loading"><div class="loader"></div><p>Generating protocol...</p></div>';
+            
+            document.getElementById('singleBtn').disabled = true;
+            document.getElementById('allTestsBtn').disabled = true;
+            
+            try {
+                const response = await generateProtocol(request);
+                resultsDiv.innerHTML = renderProtocol(request, response);
+                document.getElementById('stats').style.display = 'none';
+            } catch (error) {
+                resultsDiv.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+            } finally {
+                document.getElementById('singleBtn').disabled = false;
+                document.getElementById('allTestsBtn').disabled = false;
+            }
+        }
+        
+        async function runAllTests() {
+            const resultsDiv = document.getElementById('results');
+            
+            document.getElementById('singleBtn').disabled = true;
+            document.getElementById('allTestsBtn').disabled = true;
+            
+            const results = [];
+            let totalSteps = 0;
+            let totalDuration = 0;
+            let successCount = 0;
+            
+            for (let i = 0; i < testScenarios.length; i++) {
+                const scenario = testScenarios[i];
+                resultsDiv.innerHTML = `<div class="loading"><div class="loader"></div><p>Running test ${i + 1} of ${testScenarios.length}...<br><small>${scenario.track} | ${scenario.durationMinutes}min | intensity ${scenario.intensity || '?'} | ${scenario.context || '?'}</small></p></div>`;
+                
+                try {
+                    const response = await generateProtocol(scenario);
+                    results.push({ request: scenario, response, error: null });
+                    totalSteps += (response.steps || []).length;
+                    totalDuration += (response.steps || []).reduce((sum, step) => sum + step.seconds, 0);
+                    successCount++;
+                } catch (error) {
+                    results.push({ request: scenario, response: null, error: error.message });
+                }
+            }
+            
+            // Update stats
+            document.getElementById('stats').style.display = 'flex';
+            document.getElementById('totalTests').textContent = `${successCount}/${results.length}`;
+            document.getElementById('avgSteps').textContent = successCount ? (totalSteps / successCount).toFixed(1) : '0';
+            document.getElementById('avgDuration').textContent = successCount ? Math.round(totalDuration / successCount) + 's' : '0s';
+            
+            // Render all results
+            resultsDiv.innerHTML = results.map(({ request, response, error }) => {
+                if (error) {
+                    return `<div class="test-card"><div class="error">Error: ${error}</div></div>`;
+                }
+                return renderProtocol(request, response);
+            }).join('');
+            
+            document.getElementById('singleBtn').disabled = false;
+            document.getElementById('allTestsBtn').disabled = false;
+        }
+    </script>
+</body>
+</html>

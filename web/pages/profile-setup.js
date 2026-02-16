@@ -386,7 +386,7 @@ export default function ProfileSetup() {
       }
 
       console.log(`Profile completed successfully for ${selectedCategory.label} category`)
-      router.push('/dashboard')
+      router.push('/playbook')
 
     } catch (error) {
       console.error('Error completing profile:', error)

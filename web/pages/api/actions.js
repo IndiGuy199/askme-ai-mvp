@@ -79,7 +79,7 @@ async function getActions(req, res) {
 // POST: Create a new action
 async function createAction(req, res) {
   try {
-    const { email, goalId, challengeId, actionText, displayOrder } = req.body
+    const { email, goalId, challengeId, actionText, displayOrder, coachMetadata } = req.body
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' })
@@ -113,18 +113,26 @@ async function createAction(req, res) {
       nextOrder = existingActions?.[0]?.display_order ? existingActions[0].display_order + 1 : 1
     }
 
+    // Build insert object
+    const insertData = {
+      user_id: user.id,
+      goal_id: goalId || null,
+      challenge_id: challengeId || null,
+      action_text: actionText,
+      is_complete: false,
+      status: 'accepted',
+      display_order: nextOrder
+    }
+
+    // Persist AI-generated metadata if provided
+    if (coachMetadata && typeof coachMetadata === 'object') {
+      insertData.coach_metadata = coachMetadata
+    }
+
     // Create the action
     const { data: newAction, error: createError } = await supabase
       .from('action_plans')
-      .insert({
-        user_id: user.id,
-        goal_id: goalId || null,
-        challenge_id: challengeId || null,
-        action_text: actionText,
-        is_complete: false,
-        status: 'accepted',
-        display_order: nextOrder
-      })
+      .insert(insertData)
       .select()
       .single()
 

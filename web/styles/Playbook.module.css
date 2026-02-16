@@ -25,9 +25,24 @@
 
 /* Main Container */
 .playbookContainer {
-  max-width: 1400px;
+  max-width: 1024px;
   margin: 0 auto;
   padding: 2rem 1rem;
+}
+
+/* Enforce max-width even on screens larger than 1024px */
+@media (min-width: 1024px) {
+  .playbookContainer {
+    max-width: 1024px;
+    padding: 2rem 1.5rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  .playbookContainer {
+    max-width: 1024px;
+    padding: 2rem 2rem;
+  }
 }
 
 /* Header */
@@ -347,6 +362,92 @@
   font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* Goals Accordion */
+.goalsAccordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.goalAccordionItem {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+
+.goalAccordionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  background: #fafbfc;
+  transition: all 0.2s;
+}
+
+.goalAccordionHeader:hover {
+  background: #f3f4f6;
+}
+
+.goalAccordionHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.goalAccordionIcon {
+  font-size: 0.875rem;
+  color: #6366f1;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.goalAccordionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.goalAccordionMeta {
+  margin: 0.25rem 0 0 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.activeGoalBadge {
+  padding: 0.25rem 0.625rem;
+  background: #10b981;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.goalAccordionContent {
+  padding: 0 1.25rem 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: white;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .actionButton {
@@ -1409,62 +1510,511 @@
   cursor: not-allowed;
 }
 
-/* Mobile Responsive */
-@media (max-width: 768px) {
+/* Log Modal Styles */
+.logModal {
+  background: white;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.logActionTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.formGroup {
+  margin-bottom: 1.25rem;
+}
+
+.formLabel {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 0.5rem;
+}
+
+.radioGroup {
+  display: flex;
+  gap: 1rem;
+}
+
+.radioOption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.radioOption:hover {
+  border-color: #6366f1;
+  background: #f9fafb;
+}
+
+.radioOption input[type="radio"]:checked + span {
+  color: #6366f1;
+  font-weight: 600;
+}
+
+.radioOption input[type="radio"] {
+  cursor: pointer;
+}
+
+.partialFields {
+  background: #f9fafb;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.orDivider {
+  text-align: center;
+  font-size: 0.875rem;
+  color: #9ca3af;
+  margin: 0.75rem 0;
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+/* Updated Action Row Styles */
+.actionTitleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.actionLastLog {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+/* ============ Manage Modal: Goal & Action Slot Cards ============ */
+.menuSectionLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6366f1;
+  margin-bottom: 0.75rem;
+}
+
+.goalSlotCard {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  transition: all 0.2s;
+}
+
+.goalSlotCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.goalSlotHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: #fafbfc;
+  transition: background 0.2s;
+}
+
+.goalSlotHeader:hover {
+  background: #f3f4f6;
+}
+
+.goalSlotInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.goalSlotTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 0.375rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.goalSlotMeta {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+.goalSlotActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.baselineBadge {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #059669;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.baselineBadgeEmpty {
+  display: inline-block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #d97706;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 999px;
+  padding: 0.125rem 0.5rem;
+}
+
+.swapGoalButton {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #6366f1;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.5rem 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.swapGoalButton:hover {
+  background: #f9fafb;
+  border-color: #6366f1;
+  color: #4f46e5;
+}
+
+.editBaselineLink {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #6366f1;
+  background: white;
+  border: 1px solid #d1d5db;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0.5rem 0.875rem;
+  transition: all 0.2s;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.editBaselineLink:hover {
+  background: #f9fafb;
+  border-color: #6366f1;
+  color: #4f46e5;
+}
+
+.actionSlotCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.875rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.actionSlotInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.actionSlotTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 0.125rem;
+}
+
+.actionSlotMeta {
+  font-size: 0.6875rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.actionSlotButtons {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.actionSwapBtn {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #6366f1;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 0.5rem 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.actionSwapBtn:hover {
+  background: #f9fafb;
+  border-color: #6366f1;
+  color: #4f46e5;
+}
+
+.actionAddBtn {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #fff;
+  background: #6366f1;
+  border: none;
+  border-radius: 6px;
+  padding: 0.375rem 0.625rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.actionAddBtn:hover {
+  background: #4f46e5;
+}
+
+.doneButton {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #fff;
+  background: #6366f1;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  transition: background 0.2s;
+}
+
+.doneButton:hover {
+  background: #4f46e5;
+}
+
+/* ============ Baseline Modal ============ */
+.baselineModal {
+  background: #fff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.baselineSubtitle {
+  font-size: 0.8125rem;
+  color: #6b7280;
+  margin: 0 0 1rem;
+}
+
+.baselineTabRow {
+  display: flex;
+  gap: 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+}
+
+.baselineTabBtn {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  background: #f9fafb;
+  color: #6b7280;
+  transition: all 0.2s;
+}
+
+.baselineTabActive {
+  background: #6366f1;
+  color: #fff;
+  font-weight: 600;
+}
+
+.baselineForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.baselineGoalName {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #f3f4f6;
+  border-radius: 6px;
+}
+
+/* ============ Range Slider ============ */
+.rangeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rangeInput {
+  flex: 1;
+  accent-color: #6366f1;
+  height: 6px;
+  cursor: pointer;
+}
+
+.rangeValue {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #6366f1;
+  min-width: 2ch;
+  text-align: center;
+}
+
+/* ================================================
+   RESPONSIVE DESIGN - Comprehensive Multi-Device Support
+   Mobile First Approach
+   ================================================ */
+
+/* Extra Small Devices (phones, portrait) - 0-575px */
+@media (max-width: 575px) {
   .playbookContainer {
-    padding: 1rem;
+    padding: 0.75rem 0.5rem;
   }
 
   .header {
-    padding: 1.5rem;
+    padding: 1.25rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
   }
 
   .title {
-    font-size: 1.5rem;
+    font-size: 1.375rem;
+    margin-bottom: 0.375rem;
   }
 
   .subtitle {
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
   }
 
   .headerRight {
     width: 100%;
+    justify-content: space-between;
   }
 
   .badge {
     flex: 1;
     min-width: 0;
+    padding: 0.625rem 0.875rem;
+  }
+
+  .badgeLabel {
+    font-size: 0.75rem;
+  }
+
+  .badgeValue {
+    font-size: 1.125rem;
   }
 
   .card {
-    padding: 1.25rem;
+    padding: 1rem;
+    border-radius: 12px;
   }
 
   .cardTitle {
-    font-size: 1.125rem;
+    font-size: 1rem;
+  }
+
+  .cardSubtitle {
+    font-size: 0.8125rem;
   }
 
   .nextStepHeader {
     flex-direction: column;
     align-items: stretch;
+    gap: 0.75rem;
   }
 
   .supportLink {
     text-align: center;
+    font-size: 0.875rem;
   }
 
   .tabContainer {
     flex-direction: column;
+    gap: 0.5rem;
   }
 
   .tab {
     min-width: 0;
     width: 100%;
+    padding: 0.875rem 1rem;
+    font-size: 0.9375rem;
   }
 
   .actionRow {
     flex-wrap: wrap;
     gap: 0.5rem;
+    padding: 0.875rem;
   }
 
   .actionContent {
@@ -1474,15 +2024,20 @@
 
   .actionCheckbox {
     order: 0;
+    margin-right: 0.5rem;
   }
 
   .durationPill {
     order: 2;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.625rem;
   }
 
   .actionButton {
     order: 3;
     margin-left: auto;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
   }
 
   .streakProgress {
@@ -1491,9 +2046,24 @@
   }
 
   .modalLarge {
+    width: 100%;
     max-width: 100%;
+    margin: 0.5rem;
     border-radius: 12px;
-    max-height: 85vh;
+    max-height: 90vh;
+  }
+
+  .modalContent {
+    padding: 1rem;
+    max-height: calc(90vh - 120px);
+  }
+
+  .modalHeader {
+    padding: 1rem;
+  }
+
+  .modalTitle {
+    font-size: 1.125rem;
   }
 
   .modalHeaderNav {
@@ -1508,14 +2078,291 @@
     gap: 0.75rem;
   }
 
+  .sectionTitle {
+    font-size: 0.9375rem;
+  }
+
   .challengeCard,
   .goalCard,
   .availableCard {
     padding: 0.875rem 1rem;
   }
 
-  .saveButton {
+  .challengeTitle,
+  .goalLabel,
+  .actionLabel {
+    font-size: 0.9375rem;
+  }
+
+  .saveButton,
+  .button,
+  .buttonPrimary,
+  .buttonSecondary {
     width: 100%;
     text-align: center;
+    padding: 0.875rem 1rem;
+    font-size: 0.9375rem;
+  }
+
+  .buttonGroup {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .buttonGroup .button {
+    width: 100%;
+  }
+
+  /* Form elements on mobile - prevents zoom on iOS */
+  .input,
+  .textarea,
+  .select {
+    font-size: 16px;
+    padding: 0.75rem;
+  }
+
+  /* Notification toast on mobile */
+  .notificationToast {
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+    font-size: 0.875rem;
+  }
+
+  /* Accordion on mobile */
+  .goalAccordionHeader {
+    padding: 0.875rem 1rem;
+  }
+
+  .goalAccordionTitle {
+    font-size: 0.9375rem;
+  }
+
+  .goalAccordionMeta {
+    font-size: 0.75rem;
+  }
+
+  .goalAccordionContent {
+    padding: 0 1rem 0.875rem 1rem;
+  }
+
+  .activeGoalBadge {
+    font-size: 0.625rem;
+    padding: 0.1875rem 0.5rem;
+  }
+}
+
+/* Small Devices (phones, landscape) - 576px-767px */
+@media (min-width: 576px) and (max-width: 767px) {
+  .playbookContainer {
+    padding: 1rem 0.75rem;
+  }
+
+  .header {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .title {
+    font-size: 1.5rem;
+  }
+
+  .subtitle {
+    font-size: 0.9375rem;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: space-around;
+  }
+
+  .badge {
+    flex: 1;
+    max-width: 150px;
+  }
+
+  .card {
+    padding: 1.25rem;
+  }
+
+  .tabContainer {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    flex: 1;
+    min-width: 150px;
+  }
+
+  .modalLarge {
+    max-width: 540px;
+    margin: 1rem auto;
+  }
+
+  .buttonGroup {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .buttonGroup .button {
+    flex: 1;
+    min-width: 150px;
+  }
+}
+
+/* Medium Devices (tablets, iPads) - 768px-991px */
+@media (min-width: 768px) and (max-width: 991px) {
+  .playbookContainer {
+    padding: 1.5rem 1rem;
+  }
+
+  .header {
+    padding: 1.75rem 1.5rem;
+  }
+
+  .title {
+    font-size: 1.75rem;
+  }
+
+  .headerRight {
+    flex-wrap: nowrap;
+  }
+
+  .badge {
+    min-width: 110px;
+  }
+
+  .contentGrid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .modalLarge {
+    max-width: 720px;
+    margin: 1.5rem auto;
+  }
+
+  .modalContent {
+    padding: 1.5rem;
+  }
+
+  .tabContainer {
+    flex-direction: row;
+  }
+
+  .tab {
+    flex: 1;
+  }
+
+  .card {
+    padding: 1.25rem;
+  }
+
+  .cardTitle {
+    font-size: 1.125rem;
+  }
+}
+
+/* Large Devices (desktops) - 992px-1199px */
+@media (min-width: 992px) and (max-width: 1199px) {
+  .playbookContainer {
+    max-width: 1024px;
+    padding: 2rem 1.5rem;
+  }
+
+  .modalLarge {
+    max-width: 900px;
+  }
+
+  .contentGrid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+/* Extra Large Devices (large desktops) - 1200px+ */
+@media (min-width: 1200px) {
+  .playbookContainer {
+    max-width: 1024px;
+    padding: 2rem 1.5rem;
+  }
+
+  .modalLarge {
+    max-width: 1000px;
+  }
+
+  .contentGrid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+/* Landscape mode for tablets and small devices */
+@media (max-height: 600px) and (orientation: landscape) {
+  .modalLarge {
+    max-height: 95vh;
+    margin: 0.5rem auto;
+  }
+
+  .modalContent {
+    max-height: calc(95vh - 100px);
+    overflow-y: auto;
+  }
+
+  .header {
+    padding: 1rem 1.5rem;
+  }
+
+  .title {
+    font-size: 1.25rem;
+  }
+
+  .badge {
+    padding: 0.5rem 0.875rem;
+  }
+}
+
+/* Touch-friendly targets for tablets and mobile */
+@media (hover: none) and (pointer: coarse) {
+  .button,
+  .tab,
+  .actionButton,
+  .checkbox,
+  .radio {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .goalCheckboxItem,
+  .goalRadioItem,
+  .actionCheckboxItem {
+    padding: 1rem;
+    min-height: 60px;
+  }
+
+  .closeButton {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+}
+
+/* Print styles */
+@media print {
+  .modalOverlay,
+  .notificationToast,
+  .actionButton,
+  .button {
+    display: none !important;
+  }
+
+  .playbookContainer {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .card {
+    page-break-inside: avoid;
+    border: 1px solid #000;
   }
 }

@@ -144,7 +144,7 @@ export default function Contact() {
               </p>
               <button 
                 className="btn rounded-pill px-4 py-2"
-                onClick={() => router.push('/dashboard')}
+                onClick={() => router.push('/playbook')}
                 style={{ 
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                   border: 'none',
@@ -152,7 +152,7 @@ export default function Contact() {
                   fontWeight: '600'
                 }}
               >
-                Back to Dashboard
+                Back to Playbook
               </button>
             </div>
           ) : (

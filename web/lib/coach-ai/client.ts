@@ -126,13 +126,37 @@ export function getFallbackActions(goalId: string): any {
     goal_id: goalId,
     actions: [
       {
-        title: 'Take 3 deep breaths when urge appears',
+        title: 'Close browser and physically leave the room',
         duration_minutes: 2,
         difficulty: 'easy',
-        category: 'urge',
-        success_criteria: 'Complete 3 full breath cycles (4 seconds in, 4 out)',
-        when_to_do: 'When you feel an urge building',
-        why_this: 'Creates a pause before acting on impulse.'
+        category: 'friction',
+        trigger_condition: 'Immediately after a slip or when urge intensity exceeds 6/10',
+        success_criteria: 'Within 30 seconds: close all tabs, stand up, leave the room, stay out for at least 2 minutes',
+        mechanism_type: 'state_change',
+        when_to_do: 'Immediately after a slip or during high urge',
+        ai_note: 'After a slip, dopamine momentum pushes toward a second session. The brain wants escalation. Changing physical space interrupts this loop faster than willpower. Movement breaks the shame-binge spiral before it locks in.'
+      },
+      {
+        title: 'Send a 1-line accountability text',
+        duration_minutes: 1,
+        difficulty: 'easy',
+        category: 'accountability',
+        trigger_condition: 'Within 2 minutes of a slip or near-miss',
+        success_criteria: 'Text your accountability partner: "I slipped but I\'m stopping now" or "Close call, staying clean"',
+        mechanism_type: 'accountability',
+        when_to_do: 'Immediately after a slip',
+        ai_note: 'The second session feeds on secrecy. Breaking secrecy within 2 minutes reduces binge probability significantly. You are interrupting isolation, which is the fuel for escalation.'
+      },
+      {
+        title: 'Activate high-risk lockdown for 24 hours',
+        duration_minutes: 3,
+        difficulty: 'medium',
+        category: 'environment',
+        trigger_condition: 'After any slip or when entering a high-risk time window',
+        success_criteria: 'Turn on content blocker restrictions, disable private browsing, move device charging to a shared room',
+        mechanism_type: 'environmental_control',
+        when_to_do: 'After a slip or before your risk window (e.g. 10pm)',
+        ai_note: 'After a slip, impulse control is neurologically lower for 12-24 hours. Preemptive friction prevents escalation tomorrow. You are designing your environment to protect your future self.'
       }
     ]
   };

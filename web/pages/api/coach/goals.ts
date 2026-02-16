@@ -4,10 +4,12 @@
  * SEPARATE from chat system
  */
 import { createClient } from '@supabase/supabase-js';
-import { buildGoalContext } from '../../../lib/coach-ai/context';
-import { buildGoalPrompt } from '../../../lib/coach-ai/prompts';
+import { buildGoalContext, buildCompactUserMetrics, getRecoveryMetrics } from '../../../lib/coach-ai/context';
+import { buildGoalPrompt, PORN_RECOVERY_SYSTEM_PROMPT } from '../../../lib/coach-ai/prompts';
 import { GoalResponseSchema } from '../../../lib/coach-ai/schema';
 import { generateStructuredOutput, getFallbackGoals } from '../../../lib/coach-ai/client';
+import { selectArchetypesForGeneration, classifyGoalArchetype } from '../../../lib/coach-ai/archetypes';
+import { checkGoalAlignment, buildRetryPrompt } from '../../../lib/coach-ai/alignment';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -22,7 +24,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { email } = req.body;
+    const { email, seedGoalTitle, seedGoalDescription } = req.body;
 
     if (!email) {
       return res.status(400).json({ error: 'Email required' });
@@ -66,20 +68,110 @@ export default async function handler(req: any, res: any) {
       };
     }
 
+    // Get recovery metrics for archetype selection
+    const recoveryMetrics = await getRecoveryMetrics(supabase, user.id);
+    
+    // Build compact metrics JSON
+    const userMetricsCompact = buildCompactUserMetrics(recoveryMetrics);
+    
+    // Get existing goals with archetypes
+    const { data: existingGoals } = await supabase
+      .from('user_wellness_goals')
+      .select(`
+        coach_wellness_goals (
+          goal_id,
+          label,
+          archetype
+        )
+      `)
+      .eq('user_id', user.id);
+
+    const existingGoalsFormatted = existingGoals?.map(g => {
+      const goalData = Array.isArray(g.coach_wellness_goals) 
+        ? g.coach_wellness_goals[0] 
+        : g.coach_wellness_goals;
+      return {
+        goal_id: goalData?.goal_id,
+        label: goalData?.label,
+        archetype: goalData?.archetype || classifyGoalArchetype(goalData?.label || '')
+      };
+    }).filter(Boolean) || [];
+
+    // Map recovery metrics to UserMetrics interface for archetype selection
+    const userMetricsForArchetypes = {
+      second_session_rate_30d: recoveryMetrics.secondSessionRate ? recoveryMetrics.secondSessionRate / 100 : undefined,
+      common_risk_window: recoveryMetrics.commonRiskWindow,
+      common_location: undefined, // Not tracked yet
+      common_pathway: undefined, // Not tracked yet
+      top_trigger: recoveryMetrics.topTrigger
+    };
+
+    // Select 3 archetypes for this generation
+    const allowedArchetypes = selectArchetypesForGeneration(
+      existingGoalsFormatted,
+      userMetricsForArchetypes
+    );
+
+    // Enhance context with new fields
+    context.existingGoals = existingGoalsFormatted;
+    context.allowedArchetypes = allowedArchetypes;
+    context.userMetricsCompact = userMetricsCompact;
+    context.seedGoalTitle = seedGoalTitle || undefined;
+    context.seedGoalDescription = seedGoalDescription || undefined;
+
     console.log('🎯 Generating goals for:', { 
       userId: user.id, 
       severity: context.severity,
-      challenge: context.challengeLabel 
+      challenge: context.challengeLabel,
+      allowedArchetypes,
+      existingGoalsCount: existingGoalsFormatted.length,
+      hasSeed: !!(seedGoalTitle || seedGoalDescription)
     });
 
-    // Generate goals via Coach AI
-    const prompt = buildGoalPrompt(context);
-    const result = await generateStructuredOutput(
-      'You are a recovery coach generating personalized wellness goals.',
+    // Generate goals via Coach AI with porn recovery system prompt
+    let prompt = buildGoalPrompt(context);
+    let result = await generateStructuredOutput(
+      PORN_RECOVERY_SYSTEM_PROMPT,
       prompt,
       GoalResponseSchema,
       'gpt-4o-mini'
     );
+
+    // Check alignment if seed text exists
+    const hasSeed = seedGoalTitle || seedGoalDescription;
+    if (hasSeed && result.success && result.data?.goals) {
+      const alignment = checkGoalAlignment(
+        seedGoalTitle,
+        seedGoalDescription,
+        result.data.goals as Array<{ label: string; description?: string }>
+      );
+
+      console.log('🎯 Goal alignment check:', alignment);
+
+      // If alignment failed, retry once with additional instructions
+      if (!alignment.aligned) {
+        console.warn('⚠️ Goal alignment failed, retrying with stricter prompt');
+        const seedText = `${seedGoalTitle || ''} ${seedGoalDescription || ''}`.trim();
+        const retryPrompt = buildRetryPrompt(prompt, seedText, alignment.reason || 'Outputs did not match seed intent');
+        
+        result = await generateStructuredOutput(
+          PORN_RECOVERY_SYSTEM_PROMPT,
+          retryPrompt,
+          GoalResponseSchema,
+          'gpt-4o-mini'
+        );
+
+        // Log retry result
+        if (result.success && result.data?.goals) {
+          const retryAlignment = checkGoalAlignment(
+            seedGoalTitle,
+            seedGoalDescription,
+            result.data.goals as Array<{ label: string; description?: string }>
+          );
+          console.log('🎯 Retry alignment check:', retryAlignment);
+        }
+      }
+    }
 
     let responseData;
     let actualTokens = 0;

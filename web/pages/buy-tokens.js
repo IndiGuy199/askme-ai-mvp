@@ -213,7 +213,7 @@ export default function BuyTokens() {
           </div>
           <div className="text-muted small">
             <i className="bi bi-arrow-left me-1"></i>
-            <a href="/dashboard" className="text-decoration-none">Back to Dashboard</a>
+            <a href="/playbook" className="text-decoration-none">Back to Playbook</a>
           </div>
         </div>
       </div>
