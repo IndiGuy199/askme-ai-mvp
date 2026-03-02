@@ -1,13 +1,11 @@
 /**
  * POST /api/coach/insights
- * Generate weekly insights and next-week planning
- * SEPARATE from chat system
+ * Generate weekly insights and next-week planning (deterministic — no AI model call).
+ * Uses getInsightMetrics for real data + deriveWeeklyBullets for computed bullets.
  */
 import { createClient } from '@supabase/supabase-js';
-import { buildInsightContext } from '../../../lib/coach-ai/context';
-import { buildInsightPrompt } from '../../../lib/coach-ai/prompts';
-import { InsightResponseSchema } from '../../../lib/coach-ai/schema';
-import { generateStructuredOutput, getFallbackInsights } from '../../../lib/coach-ai/client';
+import { buildInsightContext, getInsightMetrics } from '../../../lib/coach-ai/context';
+import { deriveWeeklyBullets } from '../../../lib/coach-ai/prompts';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -48,54 +46,39 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Build context
+    // Build context to get challengeId (still needed for response field)
     const context = await buildInsightContext(supabase, user);
     if (!context) {
       return res.status(400).json({ error: 'Unable to build context. Complete onboarding first.' });
     }
 
-    console.log('🎯 Generating insights for:', {
-      userId: user.id,
-      challenge: context.challengeLabel,
-      last7Days: `${context.last7DaysCompletions}/${context.last7DaysActions}`
-    });
+    console.log('🎯 Deriving weekly insights for:', { userId: user.id, challenge: context.challengeLabel });
 
-    // Generate insights
-    const prompt = buildInsightPrompt(context);
-    const result = await generateStructuredOutput(
-      'You are a recovery coach generating weekly insights.',
-      prompt,
-      InsightResponseSchema,
-      'gpt-4o-mini'
-    );
+    // Fetch 7-day metrics — same function the detailed report uses
+    const endDate = new Date();
+    const startDate = new Date(endDate);
+    startDate.setUTCDate(startDate.getUTCDate() - 7);
 
-    let responseData;
-    let actualTokens = 0;
+    const metrics = await getInsightMetrics(supabase, user.id, 'porn_recovery', startDate, endDate);
 
-    if (result.success && result.data) {
-      responseData = result.data;
-      actualTokens = result.usage?.totalTokens || 0;
-    } else {
-      console.warn('⚠️ Model failed, using fallback insights');
-      responseData = getFallbackInsights(context.challengeId);
-      actualTokens = INSIGHT_GENERATION_TOKEN_COST;
-    }
+    // Derive bullets deterministically — no AI call needed
+    const responseData = deriveWeeklyBullets(metrics, context.challengeId);
 
-    // Deduct tokens
+    // Deduct tokens (flat cost for the analysis operation)
     await supabase
       .from('users')
       .update({ tokens: user.tokens - INSIGHT_GENERATION_TOKEN_COST })
       .eq('id', user.id);
 
-    // Log usage
+    // Log usage (0 model tokens since deterministic)
     await supabase.from('coach_ai_usage_logs').insert({
       user_id: user.id,
       kind: 'insights',
-      prompt_tokens: result.usage?.promptTokens || 0,
-      completion_tokens: result.usage?.completionTokens || 0,
-      total_tokens: actualTokens,
-      success: result.success,
-      error_message: result.error || null
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: INSIGHT_GENERATION_TOKEN_COST,
+      success: true,
+      error_message: null
     });
 
     return res.status(200).json({

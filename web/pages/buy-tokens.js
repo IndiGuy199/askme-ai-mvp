@@ -94,7 +94,7 @@ export default function BuyTokens() {
             fontSize: 'clamp(1rem, 2.5vw, 1.2rem)',
             fontWeight: '400'
           }}>
-            Choose a token pack to continue chatting with AskMe AI.
+            Choose a token pack to continue your recovery journey.
           </p>
         </div>
 

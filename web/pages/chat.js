@@ -95,14 +95,14 @@ export default function Chat() {
   }
 
   return (
-    <Layout title="Chat - AskMe AI">
+    <Layout title="AI assisted recovery coach">
       <div className="chat-container">
         <div className="chat-wrapper">
           
           {/* Updated Header to match screenshot */}
           <div className="chat-header">
             <div className="header-left">
-              <h1 className="ai-title">AskMe AI</h1>
+              <h1 className="ai-title">AI assisted recovery coach</h1>
               <p className="ai-subtitle">Your Wellness Companion</p>
             </div>
             

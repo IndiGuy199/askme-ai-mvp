@@ -1,6 +1,7 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { supabase } from '../utils/supabaseClient';
 import styles from '../styles/SupportNow.module.css';
 
 export default function SupportNow() {
@@ -9,6 +10,9 @@ export default function SupportNow() {
   // State machine: 'setup' | 'starting' | 'session' | 'paused' | 'complete'
   const [state, setState] = useState('setup');
   
+  // Auth
+  const [user, setUser] = useState(null);
+
   // Setup inputs
   const [duration, setDuration] = useState(2);
   const [track, setTrack] = useState('');
@@ -21,12 +25,24 @@ export default function SupportNow() {
   const [stepTimeRemaining, setStepTimeRemaining] = useState(0);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [urgeRating, setUrgeRating] = useState(null);
+  const [sessionStartedAt, setSessionStartedAt] = useState(null);
+  const [saving, setSaving] = useState(false);
   
   // Refs
   const timerRef = useRef(null);
   const abortControllerRef = useRef(null);
   const audioRef = useRef(null);
   
+  // Check auth on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) setUser(session.user);
+    });
+  }, []);
+
+  // Resolved track: logged-in uses porn_recovery by default; pre-login uses picker
+  const resolvedTrack = user ? 'porn' : track;
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -70,7 +86,7 @@ export default function SupportNow() {
   };
   
   const startSession = async () => {
-    if (!track) {
+    if (!resolvedTrack) {
       alert('Please select a track');
       return;
     }
@@ -80,16 +96,13 @@ export default function SupportNow() {
     // Create abort controller for fetch
     abortControllerRef.current = new AbortController();
     
-    // Show starting screen for 10 seconds while fetching
-    const startTime = Date.now();
-    
     try {
       const response = await fetch('/api/support-now/protocol', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           durationMinutes: duration,
-          track,
+          track: resolvedTrack,
           intensity,
           context
         }),
@@ -102,15 +115,10 @@ export default function SupportNow() {
       
       const data = await response.json();
       
-      // Ensure at least 10 seconds of "starting" screen
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 10000) {
-        await new Promise(resolve => setTimeout(resolve, 10000 - elapsed));
-      }
-      
       setProtocol(data);
       setCurrentStepIndex(0);
       setStepTimeRemaining(data.steps[0].seconds);
+      setSessionStartedAt(new Date());
       setState('session');
       playChime();
       
@@ -143,6 +151,35 @@ export default function SupportNow() {
     if (timerRef.current) clearInterval(timerRef.current);
     if (abortControllerRef.current) abortControllerRef.current.abort();
     setState('complete');
+  };
+
+  const saveSession = async () => {
+    if (!user?.email) {
+      router.push('/login');
+      return;
+    }
+    setSaving(true);
+    try {
+      await fetch('/api/support-now/save-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          track: resolvedTrack || 'porn',
+          duration_minutes: duration,
+          pre_urge_intensity: intensity,
+          context: context,
+          post_urge_rating: urgeRating,
+          completed_steps: protocol ? Math.min(currentStepIndex + 1, protocol.steps.length) : 0,
+          total_steps: protocol?.steps?.length || 0
+        })
+      });
+    } catch (err) {
+      console.error('Failed to save support session:', err);
+    } finally {
+      setSaving(false);
+    }
+    router.push('/playbook');
   };
   
   const skipStep = () => {
@@ -187,20 +224,22 @@ export default function SupportNow() {
         </div>
       </div>
       
-      <div className={styles.inputSection}>
-        <label className={styles.inputLabel}>Primary Track</label>
-        <div className={styles.chipGroup}>
-          {['Porn', 'Sex', 'Food'].map(t => (
-            <button
-              key={t}
-              className={`${styles.chip} ${track === t.toLowerCase() ? styles.active : ''}`}
-              onClick={() => setTrack(t.toLowerCase())}
-            >
-              {t}
-            </button>
-          ))}
+      {!user && (
+        <div className={styles.inputSection}>
+          <label className={styles.inputLabel}>Primary Track</label>
+          <div className={styles.chipGroup}>
+            {['Porn'].map(t => (
+              <button
+                key={t}
+                className={`${styles.chip} ${track === t.toLowerCase() ? styles.active : ''}`}
+                onClick={() => setTrack(t.toLowerCase())}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       
       <div className={styles.optionalSection}>
         <div className={styles.optionalHeader}>Optional (takes 2 seconds)</div>
@@ -238,26 +277,16 @@ export default function SupportNow() {
         </div>
       </div>
       
-      <div className={styles.audioToggle}>
-        <label>
-          <input
-            type="checkbox"
-            checked={audioEnabled}
-            onChange={(e) => setAudioEnabled(e.target.checked)}
-          />
-          <span>Soft audio cues</span>
-        </label>
-      </div>
       
       <button 
         className={styles.startButton}
         onClick={startSession}
-        disabled={!track}
+        disabled={!resolvedTrack}
       >
         Start Guided Session
       </button>
       
-      <Link href="/" className={styles.backLink}>â† Back to home</Link>
+      <Link href="/" className={styles.backLink}>? Back to home</Link>
     </div>
   );
   
@@ -283,7 +312,7 @@ export default function SupportNow() {
             Step {currentStepIndex + 1} of {protocol.steps.length}
           </div>
           <button className={styles.pauseButton} onClick={pauseSession}>
-            â¸ Pause
+            Pause
           </button>
         </div>
         
@@ -302,7 +331,7 @@ export default function SupportNow() {
         
         <div className={styles.sessionFooter}>
           <button className={styles.skipButton} onClick={skipStep}>
-            Skip step â†’
+            Skip step
           </button>
         </div>
         
@@ -339,7 +368,7 @@ export default function SupportNow() {
   
   const renderComplete = () => (
     <div className={styles.completeCard}>
-      <div className={styles.completeIcon}>âœ“</div>
+      <div className={styles.completeIcon}>✓</div>
       <h2 className={styles.completeTitle}>Well Done</h2>
       <p className={styles.completeSubtitle}>You completed the session</p>
       
@@ -359,9 +388,15 @@ export default function SupportNow() {
       </div>
       
       <div className={styles.completeActions}>
-        <button className={`${styles.completeButton} ${styles.primary}`} onClick={() => router.push('/login')}>
-          Login to Pin Steps (150 tokens)
-        </button>
+        {user ? (
+          <button className={`${styles.completeButton} ${styles.primary}`} onClick={saveSession} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        ) : (
+          <button className={`${styles.completeButton} ${styles.primary}`} onClick={() => router.push('/login')}>
+            Log in to save your progress
+          </button>
+        )}
         <button className={`${styles.completeButton} ${styles.secondary}`} onClick={() => {
           setState('setup');
           setProtocol(null);

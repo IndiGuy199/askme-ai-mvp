@@ -157,7 +157,7 @@ export default function TryUrgeMode() {
             }}>
               <span style={{ color: '#fff', fontSize: 'clamp(1rem, 2.5vw, 1.2rem)', fontWeight: 700 }}>A</span>
             </div>
-            <span style={{ fontSize: 'clamp(1rem, 4vw, 1.25rem)', fontWeight: 700 }}>AskMe AI</span>
+            <span style={{ fontSize: 'clamp(1rem, 4vw, 1.25rem)', fontWeight: 700 }}>AI assisted recovery coach</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(0.5rem, 2vw, 1rem)', flexWrap: 'wrap' }}>
             <Link href="#privacy" style={{ color: '#666', textDecoration: 'none', fontWeight: 500, fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>Privacy</Link>

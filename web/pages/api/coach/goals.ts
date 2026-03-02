@@ -16,7 +16,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE!
 );
 
-const GOAL_GENERATION_TOKEN_COST = 100; // Cost in user tokens
+const GOAL_GENERATION_TOKEN_COST = 300; // Cost in user tokens
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {

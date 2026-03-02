@@ -8,12 +8,12 @@ export default function FAQ() {
   const faqs = [
     {
       id: 1,
-      question: "What is AskMe AI?",
-      answer: "AskMe AI is your personal wellness companion. We provide AI-powered coaching, mentorship, and support tailored for men 30+ looking to improve their mental, emotional, and physical well-being."
+      question: "What is this service?",
+      answer: "AI assisted recovery coach is your personal wellness companion. We provide AI-powered coaching, mentorship, and support tailored for anyone looking to improve their mental, emotional, and physical well-being."
     },
     {
       id: 2,
-      question: "How do I start using AskMe AI?",
+      question: "How do I start using the app?",
       answer: "Simply sign up, complete your profile, and select the challenges you'd like to work on. Your personalized dashboard and AI coach will guide you from there."
     },
     {
@@ -34,7 +34,7 @@ export default function FAQ() {
     {
       id: 6,
       question: "Can I get advice for specific health or mental health conditions?",
-      answer: "AskMe AI provides guidance, support, and educational information, but does not replace professional medical advice or therapy. For serious conditions, always consult a qualified professional."
+      answer: "This app provides guidance, support, and educational information, but does not replace professional medical advice or therapy. For serious conditions, always consult a qualified professional."
     }
   ]
 
@@ -43,7 +43,7 @@ export default function FAQ() {
   }
 
   return (
-    <Layout title="FAQ - AskMe AI">
+    <Layout title="FAQ - AI assisted recovery coach">
       {/* Main Content */}
       <div className="container" style={{ maxWidth: '800px', paddingTop: '2rem' }}>
         

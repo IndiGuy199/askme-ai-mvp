@@ -37,7 +37,7 @@ export default function Home() {
           }}>
             <span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: 700 }}>A</span>
           </div>
-          <span style={{ fontSize: 'clamp(1rem, 4vw, 1.25rem)', fontWeight: 700 }}>AskMe AI</span>
+          <span style={{ fontSize: 'clamp(1rem, 4vw, 1.25rem)', fontWeight: 700 }}>AI assisted recovery coach</span>
         </div>
         <div className="nav-links" style={{ display: 'flex', alignItems: 'center', gap: 'clamp(1rem, 3vw, 2rem)', flexWrap: 'wrap' }}>
           <a href="#how-it-works" style={{ color: '#444', textDecoration: 'none', fontWeight: 500, fontSize: 'clamp(0.85rem, 2vw, 1rem)' }}>How it works</a>

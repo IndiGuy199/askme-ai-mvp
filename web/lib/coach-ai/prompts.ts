@@ -4,6 +4,7 @@
  */
 
 import { GoalArchetype, ActionCategory } from './archetypes';
+import { mapCategoryToLabel } from './completeness';
 
 export interface UserContext {
   firstName?: string;
@@ -505,6 +506,109 @@ Return ONLY JSON, no markdown, no commentary.`;
 }
 
 /**
+ * Derive weekly pattern bullets + next_week_plan DETERMINISTICALLY from InsightMetrics.
+ * No model call needed. Returns an object matching InsightResponseSchema shape.
+ */
+export function deriveWeeklyBullets(metrics: any, challengeId: string): {
+  challenge_id: string;
+  timeframe_days: number;
+  low_confidence: boolean;
+  insufficient_data: boolean;
+  insights: { risk_window: string; best_tool: string; best_lever: string };
+  next_week_plan: { keep: string[]; change: string[]; try: string[] };
+} {
+  const urgePairs: number = metrics?.meta?.sample_sizes?.urge_pairs ?? 0;
+  const completionRate: number = metrics?.activity?.completion_rate ?? 0;
+  const actionsLogged: number = metrics?.activity?.actions_logged ?? 0;
+  const actionsPlanned: number = metrics?.activity?.actions_planned ?? 0;
+  const bestCat = metrics?.tools?.best_categories?.[0];
+  const dropsEntry = metrics?.urge?.drops_by_category?.[0];
+  const topHour = metrics?.risk_window?.top_hours?.[0];
+  const riskLabel: string | null = metrics?.risk_window?.label ?? null;
+  const riskConf: string = metrics?.risk_window?.confidence ?? 'none';
+  const slipCount: number = metrics?.slips?.slip_count ?? 0;
+
+  const hasAnyData = actionsPlanned > 0 || actionsLogged > 0;
+  const insufficient_data = !hasAnyData;
+  const low_confidence = hasAnyData && (actionsLogged < 5 || (urgePairs < 3 && !bestCat));
+
+  // ---- High-risk time bullet ----
+  let risk_window: string;
+  if (riskLabel && riskConf !== 'none') {
+    risk_window = riskConf === 'low'
+      ? `${riskLabel} (low confidence — log more to confirm)`
+      : `${riskLabel} (${riskConf} confidence)`;
+  } else if (topHour) {
+    risk_window = `around ${topHour.hour}:00 (low confidence — log more timestamped actions)`;
+  } else {
+    risk_window = 'not enough data yet — log more timestamped actions';
+  }
+
+  // ---- What helps most bullet ----
+  const toolSource = bestCat ?? (dropsEntry ? { category: dropsEntry.category, sample_size: dropsEntry.count ?? 0 } : null);
+  let best_tool: string;
+  if (toolSource) {
+    const label = mapCategoryToLabel(toolSource.category);
+    const n: number = toolSource.sample_size ?? toolSource.count ?? 0;
+    best_tool = n > 0 ? `${label} (${n} log${n !== 1 ? 's' : ''})` : label;
+  } else {
+    best_tool = 'not enough data yet — add urge ratings when you log actions';
+  }
+
+  // ---- Best next step (best_lever) ----
+  let best_lever: string;
+  if (!hasAnyData) {
+    best_lever = 'start by adding actions to your Playbook and logging completions';
+  } else if (urgePairs < 5) {
+    const need = Math.max(1, 5 - urgePairs);
+    best_lever = `log urge before/after on ${need} more action log${need !== 1 ? 's' : ''} to unlock urge analysis`;
+  } else if (completionRate < 0.2) {
+    best_lever = 'pick 1 action and log it daily for 7 days to build consistency';
+  } else if (bestCat && (bestCat.sample_size ?? 0) < 5) {
+    best_lever = `repeat "${mapCategoryToLabel(bestCat.category)}" 3 more times to confirm it works`;
+  } else {
+    const toolName = bestCat ? mapCategoryToLabel(bestCat.category) : 'your top tools';
+    const when = riskLabel ?? 'your high-risk times';
+    best_lever = `keep using ${toolName} during ${when}`;
+  }
+
+  // ---- next_week_plan ----
+  const keep: [string, string] = [
+    bestCat ? `Keep using ${mapCategoryToLabel(bestCat.category)} as your primary tool` : 'Keep logging actions in your Playbook each day',
+    riskLabel ? `Stay aware of your ${riskLabel} risk window` : 'Keep logging actions with timestamps so patterns emerge'
+  ];
+
+  const change: [string, string] = [
+    completionRate < 0.4
+      ? 'Reduce action count — focus on just 2-3 high-impact ones'
+      : 'Try logging one action type you have not used before',
+    urgePairs < 5
+      ? `Add urge before & after ratings to ${Math.max(1, 5 - urgePairs)} more log${Math.max(1, 5 - urgePairs) !== 1 ? 's' : ''}`
+      : 'Vary the time of day you use your top action to find the best window'
+  ];
+
+  const tryItems: [string, string] = [
+    urgePairs < 5
+      ? 'Rate your urge (0–10) before AND after your next 3 logged actions'
+      : bestCat
+        ? `Use ${mapCategoryToLabel(bestCat.category)} specifically at your high-risk time for one week`
+        : 'Pick one new action category and log it 3 times this week',
+    slipCount > 0
+      ? 'After a slip, pause 5 mins and write down the trigger before any next step'
+      : 'Try a brand-new action from a category you have not yet logged'
+  ];
+
+  return {
+    challenge_id: challengeId,
+    timeframe_days: 7,
+    low_confidence,
+    insufficient_data,
+    insights: { risk_window, best_tool, best_lever },
+    next_week_plan: { keep, change, try: tryItems }
+  };
+}
+
+/**
  * INSIGHTS GENERATION PROMPT
  */
 export function buildInsightPrompt(context: InsightContext): string {
@@ -566,75 +670,176 @@ Return ONLY JSON.`;
 
 /**
  * BUILD COMPACT INSIGHT PROMPT (for detailed report with metrics)
- * Accepts comprehensive metrics object and returns structured insights
+ * Coach-grade coaching: Observation→Meaning→Next step per bullet.
+ * Output schema v3: summary_paragraph / whats_working / where_vulnerable /
+ *   patterns_triggers / slip_analysis / one_experiment / compare_section.
+ *
+ * STABLE CONTRACT: compare_section is ALWAYS present in the output.
+ *   When no compare data exists, bullets = [] and label = "No comparison selected".
+ *   When compare data is low-confidence, bullets = [] and an appropriate label is set.
  */
+
+/** Translate internal category codes to plain English. */
+function translateCategoryCode(code: string): string {
+  const MAP: Record<string, string> = {
+    DEVICE_FRICTION:     'Phone barriers',
+    ENVIRONMENT_SHIFT:   'Environment change',
+    ACCOUNTABILITY_PING: 'Accountability check-in',
+    TIME_PROTOCOL:       'Time-based rule',
+    ANTI_BINGE_LOCK:     'Anti-binge lock',
+    RECOVERY_REPAIR:     'Recovery repair',
+    SHAME_REPAIR:        'Shame repair',
+    URGE_INTERRUPT:      'Urge interrupt',
+    // Legacy
+    friction:         'Device friction',
+    accountability:   'Accountability',
+    grounding:        'Grounding',
+    interrupt:        'Urge interrupt',
+    replacement:      'Replacement activity',
+    environment:      'Environment change',
+    urge:             'Urge management',
+    mindset:          'Mindset work',
+    connection:       'Connection',
+    movement:         'Movement',
+  };
+  return MAP[code] ?? code;
+}
+
+/** Derive compare confidence from compare period metrics. */
+export function deriveCompareConfidence(compareMetrics: any): 'high' | 'medium' | 'low' | 'none' {
+  if (!compareMetrics) return 'none';
+  const completions =
+    compareMetrics.meta?.sample_sizes?.completions ??
+    compareMetrics.activity?.actions_logged ?? 0;
+  const urgePairs = compareMetrics.meta?.sample_sizes?.urge_pairs ?? 0;
+  const timestamped = compareMetrics.meta?.sample_sizes?.timestamped_logs ?? 0;
+  if (completions >= 5 && (urgePairs >= 3 || timestamped >= 5)) return 'high';
+  if (completions >= 3) return 'medium';
+  if (completions >= 1) return 'low';
+  return 'none';
+}
+
 export function buildCompactInsightPrompt(
   metrics: any,
   compareMetrics?: any,
-  firstName?: string
+  firstName?: string,
+  compareMode?: string
 ): string {
-  const hasEnoughData = metrics.meta?.has_enough_data;
-  const completions = metrics.meta?.sample_sizes?.completions || 0;
-  const riskWindow = metrics.risk_window?.label || null;
-  const bestTool = metrics.tools?.best_categories?.[0];
-  const avgDrop = metrics.urge?.avg_drop;
-  const completionRate = metrics.activity?.completion_rate;
+  // ── Build compact METRICS blob ──────────────────────────────────────────
+  const compact: any = {
+    period: `${metrics.range?.days || '?'}d`,
+    actions_planned: metrics.activity?.actions_planned ?? 0,
+    actions_logged:  metrics.activity?.actions_logged ?? 0,
+    done:            metrics.activity?.done_count ?? 0,
+    partial:         metrics.activity?.partial_count ?? 0,
+    completion_rate: metrics.activity?.completion_rate ?? 0,
+    action_days_available:  metrics.activity?.action_days_available ?? 0,
+    completion_quality_avg: metrics.activity?.completion_quality_avg ?? null,
+    urge_avg_before:   metrics.urge?.avg_before ?? null,
+    urge_avg_after:    metrics.urge?.avg_after ?? null,
+    urge_avg_drop:     metrics.urge?.avg_drop ?? null,
+    urge_confidence:   metrics.urge?.confidence ?? 'none',
+    risk_window_label:      metrics.risk_window?.label ?? null,
+    risk_window_confidence: metrics.risk_window?.confidence ?? 'none',
+    top_hours: metrics.risk_window?.top_hours?.slice(0, 3) ?? [],
+    // Translate category codes to plain English so AI never sees raw codes.
+    best_tools: (metrics.tools?.best_categories || []).map((t: any) => ({
+      tool:  translateCategoryCode(t.category),
+      score: t.score,
+      why:   t.why,
+      n:     t.sample_size
+    })),
+    support_sessions:       metrics.support_sessions?.count ?? 0,
+    support_avg_pre_urge:   metrics.support_sessions?.avg_pre_urge ?? null,
+    support_avg_post_urge:  metrics.support_sessions?.avg_post_urge ?? null,
+    support_avg_urge_drop:  metrics.support_sessions?.avg_urge_drop ?? null,
+    samples: metrics.meta?.sample_sizes ?? {}
+  };
 
-  const metricsJson = JSON.stringify({
-    range: metrics.range,
-    activity: metrics.activity,
-    urge: metrics.urge,
-    risk_window: metrics.risk_window,
-    tools: metrics.tools,
-    slips: metrics.slips,
-    sample_sizes: metrics.meta.sample_sizes
-  }, null, 2);
-
-  let compareSection = '';
-  if (compareMetrics) {
-    compareSection = `
-COMPARISON DATA:
-Previous period metrics:
-${JSON.stringify({
-  activity: compareMetrics.activity,
-  urge: compareMetrics.urge,
-  slips: compareMetrics.slips
-}, null, 2)}
-
-Compute delta and provide "What changed" summary.`;
+  // Only include slip data when slips occurred — suppress "0 slips" filler.
+  const slipCountVal: number = metrics.slips?.slip_count ?? 0;
+  if (slipCountVal > 0) {
+    compact.slips = slipCountVal;
+    if (metrics.slips?.last_slip_at)               compact.last_slip_at        = metrics.slips.last_slip_at;
+    if (metrics.slips?.second_session_rate != null) compact.second_session_rate = metrics.slips.second_session_rate;
   }
 
-  return `You are a porn addiction recovery analyst. Generate data-driven insights from the provided METRICS.
+  const metricsStr = JSON.stringify(compact);
+
+  // ── Compare confidence gating ───────────────────────────────────────────
+  const compareConf = deriveCompareConfidence(compareMetrics);
+  const compareAllowed = compareConf === 'high' || compareConf === 'medium';
+  const resolvedCompareMode = compareMode || 'none';
+
+  let compareContextBlock = '';
+  if (compareMetrics && compareAllowed) {
+    const compareSlips = compareMetrics.slips?.slip_count;
+    const prevBlob: any = {
+      actions_logged:  compareMetrics.activity?.actions_logged,
+      completion_rate: compareMetrics.activity?.completion_rate,
+      urge_avg_drop:   compareMetrics.urge?.avg_drop,
+      ...(compareSlips ? { slips: compareSlips } : {})
+    };
+    const modeLabel = resolvedCompareMode === 'baseline' ? 'Compared to baseline' : 'Compared to previous period';
+    compareContextBlock = `
+PREV_PERIOD (${compareConf} confidence): ${JSON.stringify(prevBlob)}
+compare_section.label = "${modeLabel}"
+compare_section.bullets = 1-3 sentences on what changed. Keep neutral — do not praise or shame.`;
+  } else if (compareMetrics && !compareAllowed) {
+    const modeLabel = resolvedCompareMode === 'none'
+      ? 'No comparison selected'
+      : 'Not enough data to compare yet';
+    compareContextBlock = `
+PREV_PERIOD: insufficient data (compare_confidence=${compareConf}).
+compare_section.label = "${modeLabel}"
+compare_section.bullets = []   ← REQUIRED: empty array, no compare bullets.`;
+  } else {
+    compareContextBlock = `
+No compare period provided.
+compare_section.label = "No comparison selected"
+compare_section.bullets = []   ← REQUIRED: empty array.`;
+  }
+
+  return `You are a porn recovery coach. Generate a structured coaching report from METRICS below.
 
 USER: ${firstName || 'User'}
+METRICS: ${metricsStr}
+${compareContextBlock}
 
-METRICS (current period):
-${metricsJson}
-${compareSection}
+HARD RULES (never break):
+1. Every bullet MUST follow: Observation (what data shows) → Meaning (what this means for recovery) → Next step (one concrete action). Write all three in ONE sentence per bullet.
+2. NEVER dump raw numbers as a standalone bullet (e.g. do NOT write "Completion rate: 42%").
+3. whats_working, where_vulnerable, patterns_triggers: exactly 2 bullets each.
+4. one_experiment.steps: exactly 3 steps.
+5. Do NOT mention token costs anywhere.
 
-RULES:
-1. If sample_sizes.completions < 3: "risk_window" = "not enough data", "best_tool" = "still learning"
-2. Use ONLY the provided data. Do NOT guess or hallucinate.
-3. Risk window: use risk_window.label if available, else "not enough data"
-4. Best tool: use tools.best_categories[0].category + tools.best_categories[0].why
-5. Best lever: Choose from: Device Friction, Environment Shift, Accountability, Time Protocol
-6. Insights: 3-7 bullets, each under 80 chars, data-specific (e.g., "10:30pm–12:30am shows 67% of high-urge activity")
-7. Next experiment: Specific, testable, based on gaps in data (e.g., "Try morning accountability texts if risk window is evening")
+CATEGORY TRANSLATION (never output raw codes):
+- Use only plain-English tool names as provided in METRICS.best_tools[].tool.
+- e.g. "Phone barriers" not "DEVICE_FRICTION"; "Accountability check-in" not "ACCOUNTABILITY_PING".
 
-OUTPUT (strict JSON, under 1200 total chars):
+INTERPRETATION RULES:
+- completion_rate < 0.20 → consistency gap; recommend shrinking reps to 2 min and keeping same 3 actions for 7 days.
+- (partial/actions_logged) > 0.50 → actions too big; recommend resizing to binary done/not-done 2–5 min.
+- urge_confidence = "low"|"none" → prefix urge bullet with "[low urge data]" and propose logging urge before/after on 5+ actions.
+- risk_window_confidence = "low"|"none" → call it "possible high-risk time" and explain how to confirm (7+ timestamped logs).
+- support_sessions > 0 → weave Support Now urge relief into patterns_triggers if avg_urge_drop available.
+
+DATA RULES:
+- Use ONLY data in METRICS. Never invent numbers.
+- If "slips" absent from METRICS → slip_analysis MUST be null. Do NOT mention slips.
+- If "slips" present → slip_analysis MUST be an object with pattern, anti_binge_rule, repair_step.
+
+OUTPUT (strict JSON, no markdown, no commentary):
 {
-  "risk_window": "string or 'not enough data'",
-  "best_tool": "string or 'still learning'",
-  "best_lever": "Device Friction | Environment Shift | Accountability | Time Protocol",
-  "insights": ["...", "...", "..."],
-  "next_experiment": {
-    "title": "...",
-    "why": "...",
-    "steps": ["...", "..."]
-  }${compareMetrics ? ',\n  "compare_summary": "1-2 sentence delta summary"' : ''}
+  "summary_paragraph": "…",
+  "whats_working": ["…", "…"],
+  "where_vulnerable": ["…", "…"],
+  "patterns_triggers": ["…", "…"],
+  "slip_analysis": ${slipCountVal > 0 ? '{"pattern":"…","anti_binge_rule":"…","repair_step":"…"}' : 'null'},
+  "one_experiment": {"title":"…","why":"…","steps":["…","…","…"]},
+  "compare_section": {"label":"…","bullets":[]}
 }
-
-Return ONLY JSON. Keep total response under 1200 chars.`;
+Return ONLY JSON.`;
 }
 
 /**

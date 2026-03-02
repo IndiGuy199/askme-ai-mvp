@@ -68,7 +68,7 @@ export default function Contact() {
   }
 
   return (
-    <Layout title="Contact Us - AskMe AI">
+    <Layout title="Contact Us - AI assisted recovery coach">
       {/* Main Content */}
       <div className="container" style={{ maxWidth: '600px', paddingTop: '2rem' }}>
           

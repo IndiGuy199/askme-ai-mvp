@@ -100,19 +100,43 @@ export type NextWeekPlan = z.infer<typeof NextWeekPlanSchema>;
 export type InsightResponse = z.infer<typeof InsightResponseSchema>;
 
 /**
- * DETAILED INSIGHT REPORT SCHEMA (with metrics + comparison)
+ * DETAILED INSIGHT REPORT SCHEMA — Coach-grade structured sections.
+ *
+ * v3 stable schema (all keys always present):
+ *   - summary_paragraph   : coaching overview sentence(s)
+ *   - whats_working       : 2–4 bullets on what's going well
+ *   - where_vulnerable    : 2–4 bullets on risk areas
+ *   - patterns_triggers   : 2–4 bullets on patterns / triggers
+ *   - slip_analysis       : null when slip_count == 0; object when slips present
+ *   - one_experiment      : single testable experiment with 3–5 steps
+ *   - compare_section     : always present; bullets may be [] when data insufficient
  */
 export const DetailedInsightDataSchema = z.object({
-  risk_window: z.string(),
-  best_tool: z.string(),
-  best_lever: z.string(),
-  insights: z.array(z.string()).min(3).max(7),
-  next_experiment: z.object({
+  /** 1–2 sentence coaching overview of the period. */
+  summary_paragraph: z.string().min(10).max(400),
+  /** 2–4 bullets: what is going well and why it matters. */
+  whats_working: z.array(z.string()).min(2).max(4),
+  /** 2–4 bullets: where the user is at risk and what that means. */
+  where_vulnerable: z.array(z.string()).min(2).max(4),
+  /** 2–4 bullets referencing risk window or baseline trigger when available. */
+  patterns_triggers: z.array(z.string()).min(2).max(4),
+  /** null when slips == 0; required object when slip_count > 0. */
+  slip_analysis: z.object({
+    pattern: z.string().min(5).max(300),
+    anti_binge_rule: z.string().min(5).max(200),
+    repair_step: z.string().min(5).max(200)
+  }).nullable(),
+  /** One measurable experiment with 3–5 concrete steps. */
+  one_experiment: z.object({
     title: z.string().min(5).max(100),
     why: z.string().min(10).max(200),
-    steps: z.array(z.string()).min(1).max(3)
+    steps: z.array(z.string()).min(3).max(5)
   }),
-  compare_summary: z.string().optional()
+  /** Always present. bullets is [] when compare data is absent or low-confidence. */
+  compare_section: z.object({
+    label: z.string().min(1).max(100),
+    bullets: z.array(z.string()).max(3)
+  })
 });
 
 export type DetailedInsightData = z.infer<typeof DetailedInsightDataSchema>;
@@ -129,6 +153,7 @@ export type CompareMode = 'previous_period' | 'baseline' | 'none';
 
 /**
  * Insight metrics structure (returned by getInsightMetrics)
+ * Phase 0+2 shape – includes temporal fields, confidence, completion quality
  */
 export interface InsightMetrics {
   range: {
@@ -143,6 +168,10 @@ export interface InsightMetrics {
     done_count: number;
     partial_count: number;
     completion_rate: number;
+    /** Total action×days available in period (opportunity denominator) */
+    action_days_available: number;
+    /** Average completion_percent across all completions (null if none) */
+    completion_quality_avg: number | null;
   };
   urge: {
     avg_before: number | null;
@@ -154,13 +183,15 @@ export interface InsightMetrics {
       count: number;
       completion_rate: number;
     }>;
+    confidence: 'high' | 'medium' | 'low' | 'none';
   };
   risk_window: {
     top_hours: Array<{ hour: number; count: number; signal: string }>;
     label: string | null;
+    confidence: 'high' | 'medium' | 'low' | 'none';
   };
   tools: {
-    best_categories: Array<{ category: string; score: number; why: string }>;
+    best_categories: Array<{ category: string; score: number; why: string; sample_size?: number }>;
   };
   baselines: {
     track: any | null;
@@ -168,14 +199,25 @@ export interface InsightMetrics {
   };
   slips: {
     slip_count: number;
+    days_with_slips: number;
+    last_slip_at: string | null;
     second_session_rate: number | null;
+  };
+  support_sessions: {
+    count: number;
+    avg_pre_urge: number | null;
+    avg_post_urge: number | null;
+    avg_urge_drop: number | null;
   };
   meta: {
     has_enough_data: boolean;
     sample_sizes: {
       completions: number;
       actions: number;
+      goals_active?: number;
       slips: number;
+      urge_pairs: number;
+      timestamped_logs?: number;
     };
   };
 }
@@ -204,15 +246,22 @@ export interface InsightSnapshot {
 export interface DetailedInsightsResponse {
   report_completeness: {
     percent_complete: number;
+    /** Hard-missing: section has zero data. */
     missing_metrics: Array<{
       key: string;
       label: string;
       why_it_matters: string;
       how_to_fix: string;
-      cta: {
-        label: string;
-        href: string;
-      };
+      cta: { label: string; href: string };
+    }>;
+    /** Soft-missing: section exists but could improve (explains any gap from 100%). */
+    improvement_items: Array<{
+      key: string;
+      label: string;
+      why_it_matters: string;
+      how_to_fix: string;
+      threshold_text: string;
+      cta?: { label: string; href: string };
     }>;
     coverage: {
       [sectionName: string]: {
@@ -220,6 +269,15 @@ export interface DetailedInsightsResponse {
         pct: number;
         reasons: string[];
       };
+    };
+    meta?: {
+      total_events_in_range: number;
+      total_urge_ratings_in_range: number;
+      total_completions_in_range: number;
+      tool_samples_by_category: Array<{
+        category: string;
+        sample_size: number;
+      }>;
     };
   };
   snapshot: {

@@ -10,6 +10,8 @@ export default function Login() {
   const [message, setMessage] = useState('')
   const [isClientReady, setIsClientReady] = useState(false)
   const [cooldown, setCooldown] = useState(0)
+  const [rateLimitEndsAt, setRateLimitEndsAt] = useState(null) // 60-min OTP rate limit
+  const [rateCountdown, setRateCountdown] = useState('')
   const cooldownTimer = useRef(null)
   const router = useRouter()
   useEffect(() => {
@@ -28,7 +30,31 @@ export default function Login() {
     const until = Number(localStorage.getItem('otpCooldownUntil') || 0)
     const now = Date.now()
     if (until > now) setCooldown(Math.ceil((until - now) / 1000))
+
+    // Restore 60-min rate limit end time if still active
+    const rlUntil = Number(localStorage.getItem('otpRateLimitUntil') || 0)
+    if (rlUntil > now) setRateLimitEndsAt(rlUntil)
   }, [])
+
+  // Tick the 60-min rate-limit countdown every second
+  useEffect(() => {
+    if (!rateLimitEndsAt) { setRateCountdown(''); return }
+    const tick = () => {
+      const diff = Math.max(0, rateLimitEndsAt - Date.now())
+      if (diff === 0) {
+        setRateLimitEndsAt(null)
+        setRateCountdown('')
+        if (typeof window !== 'undefined') localStorage.removeItem('otpRateLimitUntil')
+        return
+      }
+      const m = Math.floor(diff / 60000)
+      const s = Math.floor((diff % 60000) / 1000)
+      setRateCountdown(`${m}:${s.toString().padStart(2, '0')}`)
+    }
+    tick() // run immediately so UI shows on mount
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [rateLimitEndsAt])
 
   // Tick down the cooldown every second
   useEffect(() => {
@@ -83,7 +109,19 @@ export default function Login() {
           }
         } catch {}
 
-        if (/security purposes/i.test(error.message)) {
+        const errMsg = error.message?.toLowerCase() || ''
+        const isRateLimit =
+          errMsg.includes('email rate limit') ||
+          errMsg.includes('rate limit exceeded') ||
+          errMsg.includes('too many requests') ||
+          error.status === 429
+
+        if (isRateLimit) {
+          const until = Date.now() + 60 * 60 * 1000 // 60 minutes
+          if (typeof window !== 'undefined') localStorage.setItem('otpRateLimitUntil', String(until))
+          setRateLimitEndsAt(until)
+          setMessage('')
+        } else if (/security purposes/i.test(error.message)) {
           const secs = secondsFromError(error.message)
           startCooldown(secs)
           setMessage(`Please wait ${secs}s before requesting another login link.`)
@@ -116,7 +154,7 @@ export default function Login() {
   }
 
   return (
-    <Layout title="Sign In - AskMe AI">
+    <Layout title="Sign In - AI assisted recovery coach">
       <div className={styles.loginContainer}>
         <div className={styles.loginCard}>
           {/* Logo Section */}
@@ -178,14 +216,40 @@ export default function Login() {
               🔒 Secure, passwordless login. Magic link expires in 15 minutes.
             </div>
 
-            {message && (
+            {rateLimitEndsAt ? (
+              <div style={{
+                background: '#fffbeb',
+                border: '1px solid #fcd34d',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                fontSize: '0.875rem',
+                marginTop: '8px'
+              }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>⏱</span>
+                  <div>
+                    <p style={{ fontWeight: 600, color: '#92400e', margin: 0 }}>Email limit reached</p>
+                    <p style={{ color: '#b45309', margin: '4px 0 0' }}>
+                      Supabase allows 3 login emails per address per hour.
+                      {rateCountdown
+                        ? <> Try again in <strong style={{ fontFamily: 'monospace' }}>{rateCountdown}</strong>.
+                        </>
+                        : ' Please wait up to 60 minutes.'}
+                    </p>
+                    <p style={{ color: '#b45309', margin: '6px 0 0', fontSize: '0.8rem' }}>
+                      Already received a link? Check your inbox (including spam) — it&apos;s valid for 60 minutes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : message ? (
               <div className={`${styles.message} ${message.includes('Check') ? styles.success : styles.error}`}>
                 <span className={styles.messageIcon}>
                   {message.includes('Check') ? '✅' : '⚠️'}
                 </span>
                 {message}
               </div>
-            )}
+            ) : null}
           </form>
 
           {/* Features Section */}

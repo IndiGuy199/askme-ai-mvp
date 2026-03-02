@@ -4,6 +4,11 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { UserContext, GoalContext, ActionContext, InsightContext } from './prompts';
 import { classifyGoalArchetype, selectCategoriesForGeneration } from './archetypes';
+import { InsightMetrics } from './schema';
+import { existsDuringRange, computeGoalsActiveInRange } from './completeness';
+
+const RISK_LOGS_MEDIUM_MIN = 10;
+const RISK_LOGS_HIGH_MIN = 25;
 
 
 interface BaseUserData {
@@ -434,6 +439,15 @@ export async function getRecoveryMetrics(
 /**
  * Comprehensive metrics aggregation for insights report
  * Single source of truth for weekly patterns, detailed report, and AI prompts
+ *
+ * Phase 0+2 rewrite – fixes:
+ *   • Temporal query: actions ACTIVE during period (not just created)
+ *   • Goal overlap: counts goals active at any point in [start,end]
+ *   • Extracts category from coach_metadata JSONB (not non-existent column)
+ *   • Uses completion_status + completion_percent from action_completions
+ *   • Leverages user_action_events for lifecycle awareness
+ *   • Removes dead code (unreachable return)
+ *   • Adds action_days_available, completion_quality_avg, confidence fields
  */
 export async function getInsightMetrics(
   supabase: SupabaseClient,
@@ -441,142 +455,237 @@ export async function getInsightMetrics(
   trackId: string,
   startDate: Date,
   endDate: Date
-): Promise<{
-  range: { start: string; end: string; label: string; days: number };
-  activity: {
-    actions_planned: number;
-    actions_logged: number;
-    done_count: number;
-    partial_count: number;
-    completion_rate: number;
-  };
-  urge: {
-    avg_before: number | null;
-    avg_after: number | null;
-    avg_drop: number | null;
-    drops_by_category: Array<{ category: string; avg_drop: number; count: number; completion_rate: number }>;
-  };
-  risk_window: {
-    top_hours: Array<{ hour: number; count: number; signal: string }>;
-    label: string | null;
-  };
-  tools: {
-    best_categories: Array<{ category: string; score: number; why: string }>;
-  };
-  baselines: {
-    track: any | null;
-    goal: any | null;
-  };
-  slips: {
-    slip_count: number;
-    second_session_rate: number | null;
-  };
-  meta: {
-    has_enough_data: boolean;
-    sample_sizes: { completions: number; actions: number; slips: number };
-  };
-}> {
+): Promise<InsightMetrics> {
   try {
     const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
 
-    // 1. Fetch action plans created in this period
-    const { data: actionPlans, count: actionsPlanned } = await supabase
-      .from('action_plans')
-      .select('id, action_text, category', { count: 'exact' })
-      .eq('user_id', userId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString());
+    // ---------------------------------------------------------------
+    // 1. Fetch actions ACTIVE during period (temporal filter)
+    //    Strategy: fetch all user actions (is_active=true) created before endDate,
+    //    then cross-reference action_deletions + user_action_events(remove) to find
+    //    removal date for any action that was later removed.
+    //    Per product spec: use current is_active for 'planned actions' counts.
+    // ---------------------------------------------------------------
+    const [
+      { data: allActions },
+      { data: deletions },
+      { data: removeEvents },
+      { data: allGoals },
+      { data: goalEvents }
+    ] = await Promise.all([
+      supabase
+        .from('action_plans')
+        .select('id, action_text, goal_id, created_at, coach_metadata, status')
+        .eq('user_id', userId)
+        .eq('is_active', true)  // A2: use current is_active as proxy for "planned" actions
+        .lte('created_at', endDate.toISOString()),
+      supabase
+        .from('action_deletions')
+        .select('original_action_id, deleted_at')
+        .eq('user_id', userId),
+      supabase
+        .from('user_action_events')
+        .select('from_action_id, created_at')
+        .eq('user_id', userId)
+        .eq('event_type', 'remove'),
+      supabase
+        .from('user_wellness_goals')
+        .select('id, track_id, goal_slot, status, is_active, selected_at, created_at, coach_wellness_goals(goal_id)')
+        .eq('user_id', userId),
+      supabase
+        .from('user_goal_events')
+        .select('goal_slot, swapped_goal_id, swapped_out_goal_id, created_at')
+        .eq('user_id', userId)
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: true })
+    ]);
 
-    // 2. Fetch completion logs with urge data
-    const { data: completions, count: actionsLogged } = await supabase
+    // Build a map of action_id → removal date (earliest of deletion or remove event)
+    const removalDateMap = new Map<string, Date>();
+    if (deletions) {
+      for (const d of deletions) {
+        const dt = new Date(d.deleted_at);
+        const existing = removalDateMap.get(d.original_action_id);
+        if (!existing || dt < existing) removalDateMap.set(d.original_action_id, dt);
+      }
+    }
+    if (removeEvents) {
+      for (const e of removeEvents) {
+        if (!e.from_action_id) continue;
+        const dt = new Date(e.created_at);
+        const existing = removalDateMap.get(e.from_action_id);
+        if (!existing || dt < existing) removalDateMap.set(e.from_action_id, dt);
+      }
+    }
+
+    // Filter to actions that were ACTIVE during period
+    const allActiveActions = (allActions || []).filter(a => {
+      const removedAt = removalDateMap.get(a.id);
+      return existsDuringRange(a.created_at, removedAt, startDate, endDate);
+    });
+
+    // Further restrict to actions belonging to currently active goals only.
+    // action_plans.goal_id stores coach_wellness_goals.goal_id (TEXT), not user_wellness_goals.id.
+    // This mirrors the exact filter used in playbook.js fetchActionsForGoals.
+    const activeCoachGoalIds = new Set(
+      (allGoals || [])
+        .filter((g: any) => g.is_active)
+        .map((g: any) => (g.coach_wellness_goals as any)?.goal_id)
+        .filter(Boolean)
+    );
+    const activeActions = activeCoachGoalIds.size > 0
+      ? allActiveActions.filter(a => activeCoachGoalIds.has(a.goal_id))
+      : allActiveActions;
+
+    const goalsInRange = computeGoalsActiveInRange(
+      goalEvents || [],
+      allGoals || [],
+      startDate,
+      endDate
+    );
+
+    // Helper: extract category from coach_metadata JSONB (not a direct column)
+    const getCategory = (action: any): string => {
+      if (action.coach_metadata && typeof action.coach_metadata === 'object') {
+        return action.coach_metadata.category || 'UNKNOWN';
+      }
+      return 'UNKNOWN';
+    };
+
+    // Calculate action_days_available per action
+    const actionDaysMap = new Map<string, number>();
+    for (const action of activeActions) {
+      const actionStart = new Date(Math.max(new Date(action.created_at).getTime(), startDate.getTime()));
+      const removedAt = removalDateMap.get(action.id);
+      const actionEnd = removedAt ? new Date(Math.min(removedAt.getTime(), endDate.getTime())) : endDate;
+      const daysActive = Math.max(1, Math.ceil((actionEnd.getTime() - actionStart.getTime()) / (1000 * 60 * 60 * 24)));
+      actionDaysMap.set(action.id, daysActive);
+    }
+
+    const totalActionDaysAvailable = Array.from(actionDaysMap.values()).reduce((sum, d) => sum + d, 0);
+    const actionsPlanned = activeActions.length;
+
+    // ---------------------------------------------------------------
+    // 2. Fetch completions in period with full fields
+    // ---------------------------------------------------------------
+    // Use logged_at for the range filter \u2014 it is explicitly set by log-action.ts
+    // and has a dedicated index (idx_action_completions_logged_at).
+    // created_at is the Postgres auto-fill DEFAULT but logged_at is the canonical
+    // user-facing timestamp and cannot be truncated away by range-end rounding.
+    const { data: completions } = await supabase
       .from('action_completions')
-      .select('id, action_id, completed_at, urge_before_0_10, urge_after_0_10, context, created_at', { count: 'exact' })
+      .select('id, action_id, completed_at, created_at, completion_status, completion_percent, urge_before_0_10, urge_after_0_10, context, notes, logged_at')
       .eq('user_id', userId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString());
+      .gte('logged_at', startDate.toISOString())
+      .lte('logged_at', endDate.toISOString());
 
-    // Calculate counts
-    const doneCount = completions?.length || 0;
-    const partialCount = 0; // Would need completion_status field
-    const completionRate = actionsPlanned && actionsPlanned > 0 ? doneCount / actionsPlanned : 0;
+    // Separate done vs partial
+    const allCompletions = completions || [];
+    const doneCount = allCompletions.filter(c => c.completion_status !== 'partial').length;
+    const partialCount = allCompletions.filter(c => c.completion_status === 'partial').length;
+    const actionsLogged = allCompletions.length;
 
-    // 3. Compute urge metrics
+    // Completion quality: average of completion_percent (done=100 if null)
+    const completionPercents = allCompletions.map(c => {
+      if (c.completion_percent !== null && c.completion_percent !== undefined) return c.completion_percent;
+      return c.completion_status === 'partial' ? 50 : 100;
+    });
+    const completionQualityAvg = completionPercents.length > 0
+      ? Math.round(completionPercents.reduce((s, p) => s + p, 0) / completionPercents.length)
+      : null;
+
+    // Completion rate: opportunity-based (completions / action_days_available)
+    const completionRate = totalActionDaysAvailable > 0
+      ? Math.min(1, actionsLogged / totalActionDaysAvailable)
+      : 0;
+
+    // ---------------------------------------------------------------
+    // 3. Urge metrics
+    // ---------------------------------------------------------------
     let avgBefore: number | null = null;
     let avgAfter: number | null = null;
     let avgDrop: number | null = null;
 
-    if (completions && completions.length > 0) {
-      const urgeCompletions = completions.filter(c => 
-        c.urge_before_0_10 !== null && c.urge_after_0_10 !== null
-      );
+    const urgeCompletions = allCompletions.filter(c =>
+      c.urge_before_0_10 !== null && c.urge_after_0_10 !== null
+    );
 
-      if (urgeCompletions.length > 0) {
-        avgBefore = urgeCompletions.reduce((sum, c) => sum + (c.urge_before_0_10 || 0), 0) / urgeCompletions.length;
-        avgAfter = urgeCompletions.reduce((sum, c) => sum + (c.urge_after_0_10 || 0), 0) / urgeCompletions.length;
-        avgDrop = avgBefore - avgAfter;
+    if (urgeCompletions.length > 0) {
+      avgBefore = urgeCompletions.reduce((sum, c) => sum + (c.urge_before_0_10 || 0), 0) / urgeCompletions.length;
+      avgAfter = urgeCompletions.reduce((sum, c) => sum + (c.urge_after_0_10 || 0), 0) / urgeCompletions.length;
+      avgDrop = avgBefore - avgAfter;
+    }
+
+    // ---------------------------------------------------------------
+    // 4. Urge drops by category (using coach_metadata.category)
+    // ---------------------------------------------------------------
+    const categoryMap = new Map<string, { drops: number[]; completions: number; totalActions: number; completionPercents: number[] }>();
+
+    // Build action ID → action lookup for completions
+    const actionLookup = new Map(activeActions.map(a => [a.id, a]));
+
+    for (const completion of allCompletions) {
+      const action = actionLookup.get(completion.action_id);
+      const category = action ? getCategory(action) : 'UNKNOWN';
+
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, { drops: [], completions: 0, totalActions: 0, completionPercents: [] });
+      }
+
+      const entry = categoryMap.get(category)!;
+      entry.completions++;
+
+      const pct = completion.completion_percent ?? (completion.completion_status === 'partial' ? 50 : 100);
+      entry.completionPercents.push(pct);
+
+      if (completion.urge_before_0_10 !== null && completion.urge_after_0_10 !== null) {
+        entry.drops.push(completion.urge_before_0_10 - completion.urge_after_0_10);
       }
     }
 
-    // 4. Compute urge drops by category
-    const categoryMap = new Map<string, { drops: number[]; completions: number; totalActions: number }>();
-    
-    if (completions && actionPlans) {
-      for (const completion of completions) {
-        if (completion.urge_before_0_10 !== null && completion.urge_after_0_10 !== null) {
-          const action = actionPlans.find(a => a.id === completion.action_id);
-          const category = action?.category || 'UNKNOWN';
-          
-          if (!categoryMap.has(category)) {
-            categoryMap.set(category, { drops: [], completions: 0, totalActions: 0 });
-          }
-          
-          const drop = completion.urge_before_0_10 - completion.urge_after_0_10;
-          categoryMap.get(category)!.drops.push(drop);
-          categoryMap.get(category)!.completions++;
-        }
+    // Count total actions per category
+    for (const action of activeActions) {
+      const category = getCategory(action);
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, { drops: [], completions: 0, totalActions: 0, completionPercents: [] });
       }
-
-      // Count total actions per category
-      for (const action of actionPlans) {
-        const category = action.category || 'UNKNOWN';
-        if (!categoryMap.has(category)) {
-          categoryMap.set(category, { drops: [], completions: 0, totalActions: 0 });
-        }
-        categoryMap.get(category)!.totalActions++;
-      }
+      categoryMap.get(category)!.totalActions++;
     }
 
     const dropsByCategory = Array.from(categoryMap.entries())
       .map(([category, data]) => {
-        const avgDrop = data.drops.length > 0 
-          ? data.drops.reduce((sum, d) => sum + d, 0) / data.drops.length 
+        const catAvgDrop = data.drops.length > 0
+          ? data.drops.reduce((sum, d) => sum + d, 0) / data.drops.length
           : 0;
-        const completionRate = data.totalActions > 0 ? data.completions / data.totalActions : 0;
-        
+        const catCompletionRate = data.totalActions > 0 ? data.completions / data.totalActions : 0;
+
         return {
           category,
-          avg_drop: Math.round(avgDrop * 10) / 10,
+          avg_drop: Math.round(catAvgDrop * 10) / 10,
           count: data.drops.length,
-          completion_rate: Math.round(completionRate * 100) / 100
+          completion_rate: Math.round(catCompletionRate * 100) / 100
         };
       })
-      .filter(cat => cat.count >= 2); // Only include categories with enough data
+      .filter(cat => cat.count >= 1); // Include categories with at least 1 urge pair
 
-    // 5. Compute risk window from completion timestamps
+    // ---------------------------------------------------------------
+    // 5. Risk window from completion timestamps
+    // ---------------------------------------------------------------
     const hourCounts = new Map<number, { count: number; signal: string }>();
-    
-    if (completions) {
-      for (const completion of completions) {
-        const hour = new Date(completion.created_at).getHours();
-        if (!hourCounts.has(hour)) {
-          hourCounts.set(hour, { count: 0, signal: 'activity' });
-        }
-        hourCounts.get(hour)!.count++;
-        
-        // Mark as urge_spike if high urge before
-        if (completion.urge_before_0_10 && completion.urge_before_0_10 >= 7) {
-          hourCounts.get(hour)!.signal = 'urge_spike';
-        }
+    let timestampedLogs = 0;
+
+    for (const completion of allCompletions) {
+      const ts = completion.completed_at || completion.created_at;
+      if (!ts) continue;
+      timestampedLogs++;
+      const hour = new Date(ts).getHours();
+      if (!hourCounts.has(hour)) {
+        hourCounts.set(hour, { count: 0, signal: 'activity' });
+      }
+      hourCounts.get(hour)!.count++;
+
+      if (completion.urge_before_0_10 && completion.urge_before_0_10 >= 7) {
+        hourCounts.get(hour)!.signal = 'urge_spike';
       }
     }
 
@@ -593,62 +702,78 @@ export async function getInsightMetrics(
         return `${h12}${ampm}`;
       };
       const startHour = topHours[0].hour;
-      const endHour = (startHour + 2) % 24;
-      riskWindowLabel = `${formatHour(startHour)}–${formatHour(endHour)}`;
+      const endHr = (startHour + 2) % 24;
+      riskWindowLabel = `${formatHour(startHour)}–${formatHour(endHr)}`;
     }
 
+    // ---------------------------------------------------------------
     // 6. Score tools by category
+    // ---------------------------------------------------------------
     const toolCategories = dropsByCategory
       .map(cat => {
-        // Score = (normalized urge drop * 0.5) + (completion rate * 0.5)
         const dropScore = cat.avg_drop > 0 ? Math.min(cat.avg_drop / 10, 1) : 0;
         const score = (dropScore * 0.5) + (cat.completion_rate * 0.5);
-        
+
         let why = '';
         if (cat.avg_drop > 3) why = `drops urge by ${cat.avg_drop.toFixed(1)} points`;
         else if (cat.completion_rate > 0.7) why = `${Math.round(cat.completion_rate * 100)}% completion rate`;
         else why = `modest results`;
-        
+
         return {
           category: cat.category,
           score: Math.round(score * 100) / 100,
-          why
+          why,
+          sample_size: cat.count
         };
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 3);
 
-    // 7. Fetch track baseline
-    const { data: trackBaseline, error: trackBaselineError } = await supabase
-      .from('user_track_baselines')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('track_id', trackId)
-      .maybeSingle();
+    // ---------------------------------------------------------------
+    // 7-8. Baselines (track + goal)
+    // ---------------------------------------------------------------
+    const [
+      { data: trackBaseline, error: trackBaselineError },
+      { data: goalBaseline }
+    ] = await Promise.all([
+      supabase
+        .from('user_track_baselines')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('track_id', trackId)
+        .maybeSingle(),
+      supabase
+        .from('user_goal_baselines')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    ]);
 
-    console.log('🎯 Track baseline fetch:', {
-      userId,
-      trackId,
-      trackBaseline,
-      trackBaselineError
-    });
+    if (trackBaselineError) {
+      console.warn('⚠️ Track baseline fetch error:', trackBaselineError);
+    }
 
-    // 8. Fetch most recent goal baseline (if any)
-    const { data: goalBaseline } = await supabase
-      .from('user_goal_baselines')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    // 9. Fetch slip data from progress table
-    const { data: progressLogs } = await supabase
-      .from('progress')
-      .select('logged_at, slip_count, status')
-      .eq('user_id', userId)
-      .gte('logged_at', startDate.toISOString())
-      .lte('logged_at', endDate.toISOString());
+    // ---------------------------------------------------------------
+    // 9. Slip data: merge progress table (legacy) + slip_events (new)
+    // ---------------------------------------------------------------
+    const [{ data: progressLogs }, { data: slipEventRows }] = await Promise.all([
+      supabase
+        .from('progress')
+        .select('logged_at, slip_count, status')
+        .eq('user_id', userId)
+        .gte('logged_at', startDate.toISOString())
+        .lte('logged_at', endDate.toISOString()),
+      // Guard: slip_events may not exist in all environments
+      supabase
+        .from('slip_events')
+        .select('slipped_at')
+        .eq('user_id', userId)
+        .gte('slipped_at', startDate.toISOString())
+        .lte('slipped_at', endDate.toISOString())
+        .order('slipped_at', { ascending: false })
+    ]);
 
     let slipCount = 0;
     const slipDays = new Map<string, number>();
@@ -657,7 +782,6 @@ export async function getInsightMetrics(
       for (const log of progressLogs) {
         const count = log.slip_count || (log.status === 'slip' || log.status === 'relapse' ? 1 : 0);
         slipCount += count;
-        
         if (count > 0) {
           const date = log.logged_at?.split('T')[0];
           slipDays.set(date, (slipDays.get(date) || 0) + count);
@@ -665,14 +789,61 @@ export async function getInsightMetrics(
       }
     }
 
+    // Merge slip_events rows (deduplicate by day)
+    let lastSlipAt: string | null = null;
+    if (slipEventRows && slipEventRows.length > 0) {
+      slipCount += slipEventRows.length;
+      for (const row of slipEventRows) {
+        const date = row.slipped_at?.split('T')[0];
+        if (date) slipDays.set(date, (slipDays.get(date) || 0) + 1);
+      }
+      lastSlipAt = slipEventRows[0].slipped_at; // already ordered DESC
+    }
+
     const totalSlipDays = slipDays.size;
     const multiSlipDays = Array.from(slipDays.values()).filter(count => count > 1).length;
-    const secondSessionRate = totalSlipDays >= 3 
+    const secondSessionRate = totalSlipDays >= 3
       ? Math.round((multiSlipDays / totalSlipDays) * 100)
       : null;
 
-    // 10. Determine if we have enough data
-    const hasEnoughData = (completions?.length || 0) >= 3 && (actionsPlanned || 0) >= 3;
+    // ---------------------------------------------------------------
+    // 10. Confidence + meta
+    // ---------------------------------------------------------------
+    const hasEnoughData = actionsLogged >= 3 && actionsPlanned >= 1;
+
+    // ---------------------------------------------------------------
+    // 11. Support sessions in period
+    // ---------------------------------------------------------------
+    const { data: supportSessionRows } = await supabase
+      .from('support_sessions')
+      .select('pre_urge_intensity, post_urge_rating, context, created_at')
+      .eq('user_id', userId)
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString());
+
+    const sessionRows = supportSessionRows || [];
+    const sessionCount = sessionRows.length;
+    const sessionWithRatings = sessionRows.filter(
+      (s: any) => s.pre_urge_intensity !== null && s.post_urge_rating !== null
+    );
+    let supportAvgPre: number | null = null;
+    let supportAvgPost: number | null = null;
+    let supportAvgDrop: number | null = null;
+    if (sessionWithRatings.length > 0) {
+      supportAvgPre = sessionWithRatings.reduce((s: number, r: any) => s + r.pre_urge_intensity, 0) / sessionWithRatings.length;
+      supportAvgPost = sessionWithRatings.reduce((s: number, r: any) => s + r.post_urge_rating, 0) / sessionWithRatings.length;
+      supportAvgDrop = supportAvgPre - supportAvgPost;
+    }
+
+    const urgeConfidence: 'high' | 'medium' | 'low' | 'none' =
+      urgeCompletions.length >= 10 ? 'high' :
+      urgeCompletions.length >= 5 ? 'medium' :
+      urgeCompletions.length >= 1 ? 'low' : 'none';
+
+    const riskWindowConfidence: 'high' | 'medium' | 'low' | 'none' =
+      timestampedLogs >= RISK_LOGS_HIGH_MIN ? 'high' :
+      timestampedLogs >= RISK_LOGS_MEDIUM_MIN ? 'medium' :
+      timestampedLogs >= 1 ? 'low' : 'none';
 
     return {
       range: {
@@ -682,21 +853,25 @@ export async function getInsightMetrics(
         days: daysDiff
       },
       activity: {
-        actions_planned: actionsPlanned || 0,
-        actions_logged: actionsLogged || 0,
+        actions_planned: actionsPlanned,
+        actions_logged: actionsLogged,
         done_count: doneCount,
         partial_count: partialCount,
-        completion_rate: Math.round(completionRate * 100) / 100
+        completion_rate: Math.round(completionRate * 100) / 100,
+        action_days_available: totalActionDaysAvailable,
+        completion_quality_avg: completionQualityAvg
       },
       urge: {
         avg_before: avgBefore !== null ? Math.round(avgBefore * 10) / 10 : null,
         avg_after: avgAfter !== null ? Math.round(avgAfter * 10) / 10 : null,
         avg_drop: avgDrop !== null ? Math.round(avgDrop * 10) / 10 : null,
-        drops_by_category: dropsByCategory
+        drops_by_category: dropsByCategory,
+        confidence: urgeConfidence
       },
       risk_window: {
         top_hours: topHours,
-        label: riskWindowLabel
+        label: riskWindowLabel,
+        confidence: riskWindowConfidence
       },
       tools: {
         best_categories: toolCategories
@@ -707,36 +882,40 @@ export async function getInsightMetrics(
       },
       slips: {
         slip_count: slipCount,
+        days_with_slips: totalSlipDays,
+        last_slip_at: lastSlipAt,
         second_session_rate: secondSessionRate
+      },
+      support_sessions: {
+        count: sessionCount,
+        avg_pre_urge: supportAvgPre !== null ? Math.round(supportAvgPre * 10) / 10 : null,
+        avg_post_urge: supportAvgPost !== null ? Math.round(supportAvgPost * 10) / 10 : null,
+        avg_urge_drop: supportAvgDrop !== null ? Math.round(supportAvgDrop * 10) / 10 : null
       },
       meta: {
         has_enough_data: hasEnoughData,
         sample_sizes: {
-          completions: completions?.length || 0,
-          actions: actionsPlanned || 0,
-          slips: slipCount
+          completions: actionsLogged,
+          actions: actionsPlanned,
+          goals_active: goalsInRange.goals_active_count,
+          slips: slipCount,
+          urge_pairs: urgeCompletions.length,
+          timestamped_logs: timestampedLogs
         }
       }
     };
-
-    console.log('📊 Metrics baselines being returned:', {
-      track: trackBaseline || null,
-      goal: goalBaseline || null
-    });
-
-    return metrics;
   } catch (error) {
     console.error('Error fetching insight metrics:', error);
-    // Return safe defaults
     return {
       range: { start: startDate.toISOString(), end: endDate.toISOString(), label: 'error', days: 0 },
-      activity: { actions_planned: 0, actions_logged: 0, done_count: 0, partial_count: 0, completion_rate: 0 },
-      urge: { avg_before: null, avg_after: null, avg_drop: null, drops_by_category: [] },
-      risk_window: { top_hours: [], label: null },
+      activity: { actions_planned: 0, actions_logged: 0, done_count: 0, partial_count: 0, completion_rate: 0, action_days_available: 0, completion_quality_avg: null },
+      urge: { avg_before: null, avg_after: null, avg_drop: null, drops_by_category: [], confidence: 'none' as const },
+      risk_window: { top_hours: [], label: null, confidence: 'none' as const },
       tools: { best_categories: [] },
       baselines: { track: null, goal: null },
-      slips: { slip_count: 0, second_session_rate: null },
-      meta: { has_enough_data: false, sample_sizes: { completions: 0, actions: 0, slips: 0 } }
+      slips: { slip_count: 0, days_with_slips: 0, last_slip_at: null, second_session_rate: null },
+      support_sessions: { count: 0, avg_pre_urge: null, avg_post_urge: null, avg_urge_drop: null },
+      meta: { has_enough_data: false, sample_sizes: { completions: 0, actions: 0, goals_active: 0, slips: 0, urge_pairs: 0, timestamped_logs: 0 } }
     };
   }
 }
@@ -777,22 +956,46 @@ export async function buildInsightContext(
   const severityContext = await getUserSeverityContext(supabase, user.id);
   if (!severityContext) return null;
 
-  // Get last 7 days action stats
+  // Get last 7 days action stats using the exact same logic the playbook uses:
+  // 1. Fetch active user_wellness_goals joined with coach_wellness_goals to get goal_id
+  // 2. Filter action_plans by those coach_wellness_goals.goal_id values (TEXT field)
+  // This is identical to how fetchActionsForGoals works in playbook.js
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-  const { count: last7DaysActions } = await supabase
-    .from('action_plans')
-    .select('*', { count: 'exact', head: true })
+  const { data: activeGoalRows } = await supabase
+    .from('user_wellness_goals')
+    .select('id, coach_wellness_goals(goal_id)')
     .eq('user_id', user.id)
-    .gte('created_at', sevenDaysAgo.toISOString());
+    .eq('is_active', true);
+
+  // Collect the coach_wellness_goals.goal_id values — this is what action_plans.goal_id stores
+  const activeCoachGoalIds = (activeGoalRows || [])
+    .map((g: any) => g.coach_wellness_goals?.goal_id)
+    .filter(Boolean);
+
+  let actionPlansQuery = supabase
+    .from('action_plans')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('is_complete', false)
+    .eq('is_active', true);  // A2: is_active column is the data-driven cap (max 3/goal)
+
+  if (activeCoachGoalIds.length > 0) {
+    actionPlansQuery = actionPlansQuery.in('goal_id', activeCoachGoalIds);
+  } else {
+    // No active goals → no actions to count
+    actionPlansQuery = actionPlansQuery.in('goal_id', ['__none__']);
+  }
+
+  const { count: last7DaysActionsCount } = await actionPlansQuery;
+  const last7DaysActions = last7DaysActionsCount || 0;
 
   const { count: last7DaysCompletions } = await supabase
-    .from('action_plans')
+    .from('action_completions')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
-    .eq('is_complete', true)
-    .gte('created_at', sevenDaysAgo.toISOString());
+    .gte('logged_at', sevenDaysAgo.toISOString());
 
   // TODO: Add risk window analysis (would require completed_at timestamps)
   // For now, we'll pass undefined and let prompt handle it

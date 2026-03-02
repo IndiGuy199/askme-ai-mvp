@@ -25,18 +25,28 @@ import styles from '../styles/ProfileSetup.module.css'
 // Only keep categories fallback as a minimal safety net
 const FALLBACK_CATEGORIES = [
   {
-    id: 1,
-    code: 'mental_health',
-    label: 'Mental Health',
-    description: 'Help with anxiety, depression, stress, and emotional wellbeing'
-  },
-  {
     id: 2, 
     code: 'addiction_recovery',
-    label: 'Addiction & Recovery',
-    description: 'Support for overcoming addictive behaviors and maintaining recovery'
+    label: 'Compulsive behaviors & recovery',
+    description: 'Support for building healthier habits and breaking compulsive cycles'
   }
 ]
+
+// Allowed category codes visible in onboarding (mental_health hidden for now)
+const ALLOWED_CATEGORY_CODES = ['addiction_recovery']
+
+// Map category labels to friendly names
+const CATEGORY_LABEL_MAP = {
+  addiction_recovery: 'Compulsive behaviors & recovery'
+}
+
+// Allowed challenge_ids and their friendly UI labels (porn only for now)
+const ALLOWED_CHALLENGE_IDS = ['pornography_addiction', 'porn_recovery', 'porn']
+const CHALLENGE_LABEL_MAP = {
+  pornography_addiction: 'Porn',
+  porn_recovery: 'Porn',
+  porn: 'Porn'
+}
 
 export default function ProfileSetup() {
   const [currentStep, setCurrentStep] = useState(1)
@@ -79,7 +89,11 @@ export default function ProfileSetup() {
         console.warn('Categories table not found:', error)
         setCategories(FALLBACK_CATEGORIES)
       } else if (data && data.length > 0) {
-        setCategories(data)
+        // Filter to allowed categories and apply label overrides
+        const filtered = data
+          .filter(c => ALLOWED_CATEGORY_CODES.includes(c.code))
+          .map(c => ({ ...c, label: CATEGORY_LABEL_MAP[c.code] || c.label }))
+        setCategories(filtered.length > 0 ? filtered : FALLBACK_CATEGORIES)
       } else {
         console.warn('No categories found in database, using fallback')
         setCategories(FALLBACK_CATEGORIES)
@@ -109,14 +123,30 @@ export default function ProfileSetup() {
         setAvailableChallenges([])
       } else if (data && data.length > 0) {
         // Transform the data to the format needed by the UI
-        const challenges = data.map(challenge => ({
-          id: challenge.id, // UUID for database operations
-          challenge_id: challenge.challenge_id, // String ID for selection
-          label: challenge.label || formatChallengeLabel(challenge.challenge_id)
+        // Filter to allowed challenge IDs and apply friendly label overrides
+        const challenges = data
+          .filter(challenge => {
+            const cid = challenge.challenge_id
+            return ALLOWED_CHALLENGE_IDS.includes(cid) || ALLOWED_CHALLENGE_IDS.some(a => cid?.startsWith(a))
+          })
+          .map(challenge => ({
+            id: challenge.id, // UUID for database operations
+            challenge_id: challenge.challenge_id, // String ID for selection
+            label: CHALLENGE_LABEL_MAP[challenge.challenge_id] || challenge.label || formatChallengeLabel(challenge.challenge_id)
+          }))
+        // If nothing matched the filter, fall through to show all (safety net)
+        const finalChallenges = challenges.length > 0 ? challenges : data.map(challenge => ({
+          id: challenge.id,
+          challenge_id: challenge.challenge_id,
+          label: CHALLENGE_LABEL_MAP[challenge.challenge_id] || challenge.label || formatChallengeLabel(challenge.challenge_id)
         }))
-        
-        console.log('🔧 Loaded challenges for category:', challenges)
-        setAvailableChallenges(challenges)
+        // Apply final safety label override: any porn-related challenge → "Porn"
+        const labelledChallenges = finalChallenges.map(c => ({
+          ...c,
+          label: (c.challenge_id?.toLowerCase().includes('porn') ? 'Porn' : c.label)
+        }))
+        console.log('🔧 Loaded challenges for category:', labelledChallenges)
+        setAvailableChallenges(labelledChallenges)
       } else {
         console.warn(`No challenges found for category ${categoryId}`)
         setAvailableChallenges([])
@@ -252,6 +282,20 @@ export default function ProfileSetup() {
       if (userError) {
         console.error('User update error:', userError)
         throw userError
+      }
+
+      // 1b. Grant 5000 profile-completion tokens (server-side idempotent via welcome_tokens_granted_at)
+      try {
+        const { data: granted, error: grantErr } = await supabase.rpc('grant_profile_tokens', { uid: user.id })
+        if (grantErr) {
+          console.warn('Token grant RPC error (non-fatal):', grantErr)
+        } else if (granted) {
+          console.log('✅ Granted 5000 profile-completion tokens')
+        } else {
+          console.log('ℹ️ Profile tokens already granted — skipped')
+        }
+      } catch (tokenErr) {
+        console.warn('Token grant error (non-fatal):', tokenErr)
       }
 
       // 2. Store consent record
@@ -397,14 +441,14 @@ export default function ProfileSetup() {
   }
 
   return (
-    <Layout title="Complete Your Profile - AskMe AI">
+    <Layout title="Complete Your Profile - AI assisted recovery coach" forcePreLogin>
       <div className={styles.container}>
         
         {/* Header */}
         <div className={styles.header}>
           <div className={styles.logo}>
             <div className={styles.logoIcon}>🧠</div>
-            <span className={styles.logoText}>AskMe AI</span>
+            <span className={styles.logoText}>AI assisted recovery coach</span>
           </div>
           
           <div className={styles.progressSection}>
@@ -435,33 +479,36 @@ export default function ProfileSetup() {
             
             {/* Step 1: Category Selection */}
             {currentStep === 1 && (
-              <div className={styles.cardsGrid}>
-                {categories.map((category) => (
-                  <div
-                    key={category.id}
-                    className={styles.card}
-                    onClick={() => handleCategorySelect(category)}
-                  >
-                    <div className={styles.cardHeader}>
-                      <h3 className={styles.cardTitle}>
-                        <span className={styles.cardIcon}>
-                          {category.code === 'addiction_recovery' ? '🔄' : '🧠'}
-                        </span>
-                        {category.label}
-                      </h3>
-                      <p className={styles.cardDescription}>{category.description}</p>
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <div style={{ width: '100%', maxWidth: '420px' }}>
+                  {categories.map((category) => (
+                    <div
+                      key={category.id}
+                      className={styles.card}
+                      onClick={() => handleCategorySelect(category)}
+                      style={{ cursor: 'pointer', marginBottom: '1.5rem' }}
+                    >
+                      <div className={styles.cardHeader}>
+                        <h3 className={styles.cardTitle}>
+                          <span className={styles.cardIcon}>
+                            {category.code === 'addiction_recovery' ? '🔄' : '🧠'}
+                          </span>
+                          {category.label}
+                        </h3>
+                        <p className={styles.cardDescription}>{category.description}</p>
+                      </div>
+                      <div className={styles.cardContent}>
+                        <button 
+                          type="button"
+                          className={`${styles.primaryButton} ${styles.categorySelectButton}`}
+                        >
+                          <span className={styles.buttonIcon}>✨</span>
+                          Get Specialized Help
+                        </button>
+                      </div>
                     </div>
-                    <div className={styles.cardContent}>
-                      <button 
-                        type="button"
-                        className={`${styles.primaryButton} ${styles.categorySelectButton}`}
-                      >
-                        <span className={styles.buttonIcon}>✨</span>
-                        Get Specialized Help
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
@@ -483,7 +530,7 @@ export default function ProfileSetup() {
                     <div className={styles.inputRow}>
                       <div className={styles.inputGroup}>
                         <label className={styles.label}>
-                          First Name <span className={styles.required}>*</span>
+                          First Name
                         </label>
                         <div className={styles.inputWrapper}>
                           <span className={styles.inputIcon}>👤</span>
@@ -499,7 +546,7 @@ export default function ProfileSetup() {
 
                       <div className={styles.inputGroup}>
                         <label className={styles.label}>
-                          Age <span className={styles.required}>*</span>
+                          Age
                         </label>
                         <div className={styles.inputWrapper}>
                           <span className={styles.inputIcon}>🎂</span>
@@ -556,9 +603,15 @@ export default function ProfileSetup() {
                       </button>
                       <button 
                         type="button"
+                        className={styles.secondaryButton}
+                        onClick={() => setCurrentStep(4)}
+                      >
+                        Skip for now
+                      </button>
+                      <button 
+                        type="button"
                         className={styles.primaryButton}
                         onClick={() => setCurrentStep(4)}
-                        disabled={!formData.firstName || !formData.age}
                       >
                         <span className={styles.buttonIcon}>➡️</span>
                         Next: Terms & Conditions
@@ -706,32 +759,52 @@ export default function ProfileSetup() {
                   
                   <div className={styles.cardContent}>
                     
-                    {/* Important Disclaimer */}
+                    {/* Wellness Disclaimer */}
                     <div className={styles.disclaimerSection}>
-                      <div className={styles.disclaimerBox}>
-                        <h4 style={{ color: '#dc2626', marginBottom: '1rem' }}>
-                          ⚠️ Important Medical Disclaimer
+                      <div className={styles.disclaimerBox} style={{ borderLeft: '4px solid #6366f1', backgroundColor: '#f0f4ff', borderRadius: '10px', padding: '1.25rem' }}>
+                        <h4 style={{ color: '#3730a3', marginBottom: '0.75rem', fontWeight: 600 }}>
+                          🔒 Private. Safe. Wellness support.
                         </h4>
-                        <p style={{ lineHeight: '1.6', marginBottom: '0.75rem' }}>
-                          <strong>AskMe AI is for educational and wellness support purposes only.</strong> 
-                          It is not a substitute for professional medical advice, diagnosis, or treatment.
+                        <p style={{ lineHeight: '1.6', marginBottom: '0.75rem', color: '#374151' }}>
+                          This app provides AI-powered wellness guidance to help you build better habits.
+                          It is <strong>not</strong> a substitute for professional medical or mental health care.
                         </p>
-                        <p style={{ lineHeight: '1.6', marginBottom: '0.75rem' }}>
-                          If you are experiencing a mental health crisis, having thoughts of self-harm, 
-                          or need immediate medical attention, please contact emergency services immediately 
-                          or call the National Suicide Prevention Lifeline at 988.
-                        </p>
-                        <p style={{ lineHeight: '1.6', marginBottom: '0' }}>
-                          Always consult with qualified healthcare professionals for medical concerns.
+                        <p style={{ lineHeight: '1.6', marginBottom: '0', color: '#374151' }}>
+                          Your data is private and never sold. If you are ever in immediate danger,
+                          please contact a trusted person or emergency services.
                         </p>
                       </div>
+                    </div>
+
+                    {/* Inline Terms Summary */}
+                    <div style={{ background: '#f9fafb', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', border: '1px solid #e5e7eb' }}>
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1f2937', marginBottom: '0.5rem' }}>Terms of Service summary</h4>
+                      <ul style={{ margin: 0, padding: '0 0 0 1.25rem', color: '#4b5563', fontSize: '0.875rem', lineHeight: 1.7 }}>
+                        <li>You must be 18 or older to use this service.</li>
+                        <li>This service provides wellness guidance, not clinical treatment.</li>
+                        <li>You retain ownership of your personal data.</li>
+                        <li>You may delete your account at any time.</li>
+                      </ul>
+                      <a href="/terms" target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', color: '#6366f1', textDecoration: 'underline', display: 'inline-block', marginTop: '0.5rem' }}>Read full Terms of Service →</a>
+                    </div>
+
+                    {/* Inline Privacy Summary */}
+                    <div style={{ background: '#f9fafb', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', border: '1px solid #e5e7eb' }}>
+                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#1f2937', marginBottom: '0.5rem' }}>Privacy Policy summary</h4>
+                      <ul style={{ margin: 0, padding: '0 0 0 1.25rem', color: '#4b5563', fontSize: '0.875rem', lineHeight: 1.7 }}>
+                        <li>Your data is stored securely and never sold to third parties.</li>
+                        <li>We use your data only to personalize your coaching experience.</li>
+                        <li>We use industry-standard encryption for all data in transit and at rest.</li>
+                        <li>You can request deletion of all your data at any time via Settings.</li>
+                      </ul>
+                      <a href="/privacy" target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem', color: '#6366f1', textDecoration: 'underline', display: 'inline-block', marginTop: '0.5rem' }}>Read full Privacy Policy →</a>
                     </div>
 
                     {/* Age Confirmation */}
                     <div className={styles.ageConfirmation}>
                       <p className={styles.ageText}>
                         <strong>Age Verification:</strong> You have indicated that you are {formData.age} years old. 
-                        You must be at least 18 years old to use AskMe AI.
+                        You must be at least 18 years old to use this service.
                       </p>
                     </div>
 
@@ -759,7 +832,7 @@ export default function ProfileSetup() {
                           className={styles.checkbox}
                         />
                         <label htmlFor="termsAccept" className={styles.checkboxText}>
-                          I accept the <strong>Terms of Service</strong> and understand that AskMe AI 
+                          I accept the <a href="/terms" target="_blank" rel="noreferrer" style={{ color: '#6366f1' }}>Terms of Service</a> and understand that this service
                           provides wellness guidance and is not a substitute for professional medical care
                         </label>
                       </div>
@@ -773,7 +846,7 @@ export default function ProfileSetup() {
                           className={styles.checkbox}
                         />
                         <label htmlFor="privacyAccept" className={styles.checkboxText}>
-                          I accept the <strong>Privacy Policy</strong> and consent to the processing 
+                          I accept the <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: '#6366f1' }}>Privacy Policy</a> and consent to the processing 
                           of my personal data for wellness coaching purposes
                         </label>
                       </div>

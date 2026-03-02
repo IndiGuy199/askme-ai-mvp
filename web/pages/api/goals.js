@@ -64,6 +64,42 @@ export default async function handler(req, res) {
         return res.status(404).json({ error: 'User not found' })
       }
 
+      // A1: Enforce library vs playbook activation rules server-side.
+      // goalContext='library'  → goal must be saved as inactive (is_active=false).
+      // goalContext='playbook' → activate only if a slot is available (< 2 active goals).
+      // Legacy callers that omit goalContext still get slot-checked if activateGoal=true.
+      const goalContext = req.body.goalContext // 'library' | 'playbook' | undefined
+      let shouldActivate = req.body.activateGoal === true
+
+      if (goalContext === 'library') {
+        // Hard rule: library additions are never auto-active.
+        shouldActivate = false
+      } else if (shouldActivate) {
+        // Playbook or legacy path: verify slot availability before activating.
+        const { data: activeGoals, error: activeErr } = await supabase
+          .from('user_wellness_goals')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+
+        if (activeErr) {
+          console.error('Error checking active goal slots:', activeErr)
+          return res.status(500).json({ error: 'Failed to check goal slots' })
+        }
+
+        if (activeGoals && activeGoals.length >= 2) {
+          if (goalContext === 'playbook') {
+            // Explicit playbook context with no free slot → reject with helpful error.
+            return res.status(400).json({
+              error: 'You already have 2 active goals. Swap out an existing active goal before adding a new one from Playbook.',
+              code: 'NO_ACTIVE_SLOT'
+            })
+          }
+          // Legacy caller: gracefully fall back to library.
+          shouldActivate = false
+        }
+      }
+
       if (goalId) {
         // Adding an existing goal to user for a specific challenge
         if (!challengeId) {
@@ -132,12 +168,13 @@ export default async function handler(req, res) {
           }
         }
 
-        // Add the goal to the user
+        // Add the goal to the user — use shouldActivate which encodes A1 rules (library/playbook/slots)
         const { data: newUserGoal, error: insertError } = await supabase
           .from('user_wellness_goals')
           .insert({
             user_id: user.id,
-            coach_wellness_goal_id: goalId
+            coach_wellness_goal_id: goalId,
+            is_active: shouldActivate
           })
           .select(`
             *,
@@ -174,6 +211,11 @@ export default async function handler(req, res) {
       if (goalData) {
         // Creating a custom goal
         const { label, description, category = 'Custom', challengeId } = goalData
+        const { source } = req.body
+
+        if (!source || !['library', 'ai'].includes(source)) {
+          return res.status(400).json({ error: 'Goal creation requires a valid source. Please select a goal from the dropdown or use AI Suggest Goals to generate one.' })
+        }
 
         if (!label) {
           return res.status(400).json({ error: 'Goal label is required' })
@@ -206,12 +248,13 @@ export default async function handler(req, res) {
           return res.status(500).json({ error: 'Failed to create custom goal' })
         }
 
-        // Then add it to user_wellness_goals
+        // Then add it to user_wellness_goals — use shouldActivate which encodes A1 rules
         const { data: newUserGoal, error: userGoalError } = await supabase
           .from('user_wellness_goals')
           .insert({
             user_id: user.id,
-            coach_wellness_goal_id: newGoal.id
+            coach_wellness_goal_id: newGoal.id,
+            is_active: shouldActivate
           })
           .select(`
             *,

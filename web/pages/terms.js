@@ -27,7 +27,7 @@ export default function Terms() {
           }}>
             <span style={{ color: '#fff', fontSize: '1.2rem', fontWeight: 700 }}>A</span>
           </div>
-          <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>AskMe AI</span>
+          <span style={{ fontSize: '1.25rem', fontWeight: 700 }}>AI assisted recovery coach</span>
         </div>
         <button
           style={{
@@ -48,13 +48,36 @@ export default function Terms() {
 
       {/* Content */}
       <div style={{ maxWidth: 800, margin: '0 auto', padding: '60px 24px' }}>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 700, marginBottom: 32 }}>Terms of Service</h1>
-        <p style={{ fontSize: '1.1rem', color: '#666', lineHeight: 1.8, marginBottom: 24 }}>
-          These are the terms and conditions for using AskMe AI.
-        </p>
-        <p style={{ fontSize: '1rem', color: '#888', lineHeight: 1.8 }}>
-          Coming soon...
-        </p>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 700, marginBottom: 16 }}>Terms of Service</h1>
+        <p style={{ fontSize: '0.9rem', color: '#9ca3af', marginBottom: 40 }}>Last updated: February 18, 2026</p>
+
+        {[{
+          title: '1. Who can use this service',
+          body: 'You must be at least 18 years old to use AI assisted recovery coach. By creating an account you confirm that you meet this requirement.'
+        }, {
+          title: '2. What this service is',
+          body: 'AI assisted recovery coach provides AI-powered wellness guidance to help you build healthier habits and break compulsive cycles. It is a wellness tool, not a licensed medical or mental health service. Nothing in this app constitutes clinical advice, diagnosis, or treatment.'
+        }, {
+          title: '3. Your account',
+          body: 'You are responsible for maintaining the confidentiality of your account credentials. You may delete your account and all associated data at any time by contacting us.'
+        }, {
+          title: '4. Acceptable use',
+          body: 'You agree not to use this service for any unlawful purpose, to attempt to reverse-engineer the AI systems, or to share your account with others.'
+        }, {
+          title: '5. Limitation of liability',
+          body: 'This service is provided "as is". We are not liable for decisions you make based on wellness suggestions. Always consult a qualified professional for medical or mental health concerns.'
+        }, {
+          title: '6. Changes to these terms',
+          body: 'We may update these terms from time to time. We will notify you of significant changes via email or an in-app notice.'
+        }, {
+          title: '7. Contact',
+          body: 'Questions about these terms? Email us at support@askmeai.app.'
+        }].map(section => (
+          <div key={section.title} style={{ marginBottom: 36 }}>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>{section.title}</h2>
+            <p style={{ fontSize: '1rem', color: '#4b5563', lineHeight: 1.8 }}>{section.body}</p>
+          </div>
+        ))}
       </div>
     </div>
   );

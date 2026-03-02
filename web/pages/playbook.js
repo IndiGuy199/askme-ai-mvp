@@ -29,6 +29,7 @@ export default function Playbook() {
   const [logNotes, setLogNotes] = useState('')
   const [logUrgeBefore, setLogUrgeBefore] = useState('')
   const [logUrgeAfter, setLogUrgeAfter] = useState('')
+  const [logTrackUrge, setLogTrackUrge] = useState(false) // opt-in toggle, default OFF
   const [logContext, setLogContext] = useState('')
   const [actionLogs, setActionLogs] = useState({}) // Map of action_id -> array of logs
   const [savingLog, setSavingLog] = useState(false)
@@ -113,8 +114,18 @@ export default function Playbook() {
   const [createActionFriction, setCreateActionFriction] = useState('') // max 200 chars
   
   // Weekly insights state
-  const [weeklyInsights, setWeeklyInsights] = useState(null) // { risk_window, best_tool, best_lever, keep, change, try }
+  const [weeklyInsights, setWeeklyInsights] = useState(null) // { risk_window, best_tool, best_lever, keep, change, try, low_confidence, insufficient_data }
   const [generatingInsights, setGeneratingInsights] = useState(false)
+
+  // Slip logging state
+  const [showSlipModal, setShowSlipModal] = useState(false)
+  const [slipTrigger, setSlipTrigger] = useState('')
+  const [slipUrgeLevel, setSlipUrgeLevel] = useState(5)
+  const [slipNotes, setSlipNotes] = useState('')
+  const [slipRecoveryNote, setSlipRecoveryNote] = useState('')
+  const [savingSlip, setSavingSlip] = useState(false)
+  const [slipOccurredAt, setSlipOccurredAt] = useState('') // YYYY-MM-DD
+  const [slipTimeOfDay, setSlipTimeOfDay] = useState('') // early_morning|morning|afternoon|evening|late_night
   const [expandedAINoteIndex, setExpandedAINoteIndex] = useState(null) // Track which AI action note is expanded in create modal
   const [expandedActionNotes, setExpandedActionNotes] = useState({}) // Track expanded "why this works" by action ID everywhere
   
@@ -464,32 +475,30 @@ export default function Playbook() {
                challenge?.coach_challenges?.challenge_id?.includes(userPrimaryTrack)
       })
 
-      // Find a second goal (any other goal not the primary track goal)
-      const secondGoals = goalsData.filter(g => g.id !== trackGoals[0]?.id)
+      // If no goals matched the track challenge filter, fall back to the first active goal
+      // (covers cases where challenge assignments are missing or challenge_id doesn't match user's track)
+      const resolvedTrackGoal = trackGoals.length > 0 ? trackGoals[0] : (goalsData.length > 0 ? goalsData[0] : null)
+      const resolvedSecondGoals = goalsData.filter(g => g.id !== resolvedTrackGoal?.id)
 
       // Set the goals
-      if (trackGoals.length > 0) {
+      if (resolvedTrackGoal) {
         setTrackGoal({
-          id: trackGoals[0].id,
-          goal_id: trackGoals[0].coach_wellness_goals?.goal_id || trackGoals[0].goal_id,
-          name: trackGoals[0].coach_wellness_goals?.label || 'Track Goal',
-          description: trackGoals[0].coach_wellness_goals?.description
+          id: resolvedTrackGoal.id,
+          goal_id: resolvedTrackGoal.coach_wellness_goals?.goal_id || resolvedTrackGoal.goal_id,
+          name: resolvedTrackGoal.coach_wellness_goals?.label || 'Track Goal',
+          description: resolvedTrackGoal.coach_wellness_goals?.description
         })
       } else {
-        // Default track goal if none exists
-        setTrackGoal({
-          id: null,
-          name: 'No Unfiltered Internet',
-          description: 'Set up boundaries for internet usage'
-        })
+        // No track goal yet — show empty state
+        setTrackGoal({ id: null, name: null, description: null })
       }
 
-      if (secondGoals.length > 0) {
+      if (resolvedSecondGoals.length > 0) {
         setWellnessGoal({
-          id: secondGoals[0].id,
-          goal_id: secondGoals[0].coach_wellness_goals?.goal_id || secondGoals[0].goal_id,
-          name: secondGoals[0].coach_wellness_goals?.label || secondGoals[0].label || 'Second Goal',
-          description: secondGoals[0].coach_wellness_goals?.description || secondGoals[0].description
+          id: resolvedSecondGoals[0].id,
+          goal_id: resolvedSecondGoals[0].coach_wellness_goals?.goal_id || resolvedSecondGoals[0].goal_id,
+          name: resolvedSecondGoals[0].coach_wellness_goals?.label || resolvedSecondGoals[0].label || 'Second Goal',
+          description: resolvedSecondGoals[0].coach_wellness_goals?.description || resolvedSecondGoals[0].description
         })
       } else {
         // No second goal yet
@@ -502,7 +511,7 @@ export default function Playbook() {
       }
 
       // Fetch actions for each goal
-      await fetchActionsForGoals(dbUser.id, trackGoals[0]?.coach_wellness_goals?.goal_id || trackGoals[0]?.goal_id, secondGoals[0]?.coach_wellness_goals?.goal_id || secondGoals[0]?.goal_id)
+      await fetchActionsForGoals(dbUser.id, resolvedTrackGoal?.coach_wellness_goals?.goal_id || resolvedTrackGoal?.goal_id, resolvedSecondGoals[0]?.coach_wellness_goals?.goal_id || resolvedSecondGoals[0]?.goal_id)
       
       // Calculate streak from action completions
       await calculateStreak(dbUser.id)
@@ -522,12 +531,15 @@ export default function Playbook() {
     try {
       console.log('📋 Fetching actions for userId:', userId, 'trackGoalId:', trackGoalId, 'wellnessGoalId:', wellnessGoalId)
       
-      // Fetch action plans ordered by display_order for the "Today's Actions" section
+      // Fetch action plans ordered by display_order for the "Today's Actions" section.
+      // Only is_active=true actions are shown here — the 3-per-goal cap is now enforced
+      // in the DB (is_active column) rather than via .slice(0,3).
       const { data: actionPlans, error } = await supabase
         .from('action_plans')
         .select('*')
         .eq('user_id', userId)
         .eq('is_complete', false)
+        .eq('is_active', true)
         .order('display_order', { ascending: true })
         .order('created_at', { ascending: false })
 
@@ -593,7 +605,7 @@ export default function Playbook() {
             ? 'track'
             : isWellnessGoal
               ? 'second'
-              : (action.goal_id?.includes('porn') || action.goal_id?.includes('sex') || action.goal_id?.includes('food') ? 'track' : 'second'),
+              : null, // action belongs to neither active goal — exclude it
           // Enrichment data from AI
           coachMetadata: meta
         }
@@ -602,9 +614,10 @@ export default function Playbook() {
       // Transform and split by goal type
       const transformedActions = actionPlans.map(transformAction)
 
-      // Separate into track and second goal based on goal_id (max 3 per goal)
-      const trackActionsData = transformedActions.filter(a => a.goalType === 'track').slice(0, 3)
-      const wellnessActionsData = transformedActions.filter(a => a.goalType === 'second').slice(0, 3)
+      // Separate into track and second goal based on goal_id.
+      // No .slice(0,3) needed here — is_active=true already caps to 3 per goal in the DB.
+      const trackActionsData = transformedActions.filter(a => a.goalType === 'track')
+      const wellnessActionsData = transformedActions.filter(a => a.goalType === 'second')
 
       console.log('✅ Track actions:', trackActionsData)
       console.log('✅ Second goal actions:', wellnessActionsData)
@@ -759,20 +772,30 @@ export default function Playbook() {
     try {
       setUpdatingAction(action.id)
 
-      // Mark action as complete in database
-      const { error } = await supabase
-        .from('action_completions')
-        .insert({
-          user_id: userData.id,
+      // Mark action as complete via server API (deducts 50 tokens)
+      const logRes = await fetch('/api/coach/log-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
           action_id: action.id,
-          completed_at: new Date().toISOString()
+          completion_status: 'done'
         })
+      })
 
-      if (error) {
-        // If error is duplicate, that's okay - action already completed
-        if (error.code !== '23505') { // PostgreSQL unique violation code
-          throw error
+      const logResData = await logRes.json()
+
+      if (!logRes.ok && !logResData.duplicate) {
+        if (logResData.error === 'Insufficient tokens') {
+          showNotification('Not enough credits to log this action.', 'warning')
+          return
         }
+        throw new Error(logResData.error || 'Failed to log action')
+      }
+
+      // Sync token balance from server
+      if (logResData.tokens_remaining !== undefined) {
+        setUserData(prev => ({ ...prev, tokens: logResData.tokens_remaining }))
       }
 
       // Update local state
@@ -803,6 +826,10 @@ export default function Playbook() {
     setLogCompletionStatus('done')
     setLogCompletionPercent('')
     setLogNotes('')
+    setLogUrgeBefore('')
+    setLogUrgeAfter('')
+    setLogTrackUrge(false) // reset toggle to OFF on each open
+    setLogContext('')
     setShowLogModal(true)
   }
   
@@ -842,14 +869,39 @@ export default function Playbook() {
         completed_at: new Date().toISOString()
       }
       
-      const { data, error } = await supabase
-        .from('action_completions')
-        .insert(logData)
-        .select()
-        .single()
-      
-      if (error) throw error
-      
+      const saveRes = await fetch('/api/coach/log-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          action_id: selectedActionToLog.id,
+          completion_status: logCompletionStatus,
+          completion_percent: clampedPercent,
+          notes: logNotes || null,
+          urge_before_0_10: logUrgeBefore !== '' ? parseInt(logUrgeBefore) : null,
+          urge_after_0_10: logUrgeAfter !== '' ? parseInt(logUrgeAfter) : null,
+          context: logContext || null
+        })
+      })
+
+      const saveResData = await saveRes.json()
+
+      if (!saveRes.ok) {
+        if (saveResData.error === 'Insufficient tokens') {
+          showNotification('Not enough credits to log this action.', 'warning')
+          setSavingLog(false)
+          return
+        }
+        throw new Error(saveResData.error || 'Failed to save log')
+      }
+
+      // Sync token balance from server
+      if (saveResData.tokens_remaining !== undefined) {
+        setUserData(prev => ({ ...prev, tokens: saveResData.tokens_remaining }))
+      }
+
+      const data = saveResData.log
+
       // Update local logs map
       setActionLogs(prev => ({
         ...prev,
@@ -893,7 +945,47 @@ export default function Playbook() {
       setSavingLog(false)
     }
   }
-  
+
+  // Save slip log
+  const handleSaveSlip = async () => {
+    if (!userData?.id) return
+    setSavingSlip(true)
+    try {
+      // Build slipped_at from date + time-of-day selection
+      // Time-of-day midpoints: early_morning=06:00, morning=10:00, afternoon=14:00, evening=19:00, late_night=23:00
+      const TOD_HOURS = { early_morning: 6, morning: 10, afternoon: 14, evening: 19, late_night: 23 }
+      let slippedAt = new Date().toISOString()
+      if (slipOccurredAt) {
+        const hour = TOD_HOURS[slipTimeOfDay] ?? 12
+        const d = new Date(`${slipOccurredAt}T${String(hour).padStart(2, '0')}:00:00`)
+        if (!isNaN(d.getTime())) slippedAt = d.toISOString()
+      }
+
+      const { error } = await supabase
+        .from('slip_events')
+        .insert({
+          user_id: userData.id,
+          slipped_at: slippedAt,
+          trigger_label: slipTrigger || null,
+          urge_level: slipUrgeLevel || null,
+          notes: slipNotes || null,
+          recovery_note: slipRecoveryNote || null
+        })
+      if (error) throw error
+
+      // Reset streak since a slip just happened
+      await calculateStreak(userData.id)
+
+      setShowSlipModal(false)
+      showNotification('Slip logged. You\'re still here \u2014 that matters.', 'success')
+    } catch (err) {
+      console.error('Error saving slip:', err)
+      showNotification('Could not save slip. Please try again.', 'error')
+    } finally {
+      setSavingSlip(false)
+    }
+  }
+
   // Format last log for display
   const formatLastLog = (lastLog) => {
     if (!lastLog) return 'Last log: none yet'
@@ -1276,7 +1368,13 @@ export default function Playbook() {
     console.log('🔍 Fetching actions for goalId:', goalId)
     
     try {
-      const url = `/api/actions?email=${encodeURIComponent(user.email)}&goalId=${goalId}`
+      // Always use fresh session email to avoid stale email cache (rdee199 vs rdvns199)
+      const { data: { session: freshSession } } = await supabase.auth.getSession()
+      const freshEmail = freshSession?.user?.email || user?.email
+      if (freshEmail !== user?.email) {
+        console.warn('⚠️ Email mismatch detected:', { authEmail: freshEmail, stateEmail: user?.email })
+      }
+      const url = `/api/actions?email=${encodeURIComponent(freshEmail)}&goalId=${goalId}`
       console.log('📤 Fetching from:', url)
       
       const response = await fetch(url)
@@ -1399,7 +1497,13 @@ export default function Playbook() {
     const goalLabel = selectedGoalObj?.label || newGoalLabel.trim()
     
     if (!goalLabel) {
-      showNotification('Please select a goal or enter a custom goal name', 'warning')
+      showNotification('Please select a goal from the dropdown or use "AI Suggest Goals" to generate one.', 'warning')
+      return
+    }
+
+    // Guard: must have a source (dropdown selection or AI selection)
+    if (!selectedCoachGoal && selectedGoalOption === null) {
+      showNotification('Please select a goal from the dropdown or pick one from AI suggestions.', 'warning')
       return
     }
 
@@ -1443,19 +1547,38 @@ export default function Playbook() {
     
     setSavingData(true)
     try {
-      const response = await fetch('/api/goals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: user.email,
-          challengeId: challengeId,  // Send at top level
-          goalData: {
-            label: goalLabel,
-            description: goalDescription,
-            challengeId: challengeId  // Also send inside goalData for the API
-          }
+      const goalSource = selectedCoachGoal ? 'library' : 'ai'
+      // When user picks from dropdown, link to the existing system goal (goalId path).
+      // When user picks an AI suggestion or types custom text, create a new goal record (goalData path).
+      const requestBody = {
+        email: user.email,
+        source: goalSource,
+        // A1: explicit context so the server can enforce library-vs-playbook activation rules
+        goalContext: isFromLibrary ? 'library' : 'playbook',
+        challengeId: challengeId,
+        activateGoal: !isFromLibrary, // Activate immediately when created from playbook CTA
+      }
+      if (selectedCoachGoal && selectedGoalObj?.id) {
+        // Existing system goal selected from dropdown — use its UUID so API links to it
+        requestBody.goalId = selectedGoalObj.id
+      } else {
+        // AI-generated or typed — create a new goal record
+        requestBody.goalData = {
+          label: goalLabel,
+          description: goalDescription,
+          challengeId: challengeId
+        }
+      }
+      let response
+      try {
+        response = await fetch('/api/goals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
         })
-      })
+      } catch (networkErr) {
+        throw new Error('Could not reach server. Make sure the dev server is running and refresh the page.')
+      }
       
       if (!response.ok) {
         const data = await response.json()
@@ -1483,6 +1606,7 @@ export default function Playbook() {
       setSelectedGoalOption(null)  // Clear selection
       resetCreateBaseline()
       await loadModalData()
+      if (user?.email) await fetchUserData(user.email)
       if (selectedChallenge) {
         await fetchGoalsForChallenge(selectedChallenge.coach_challenges?.challenge_id)
       }
@@ -1524,9 +1648,13 @@ export default function Playbook() {
     const inferredGoal = goalToUse || (swapType === 'track' ? trackGoal : wellnessGoal)
     
     const hasSelectedAI = selectedActionOptions.length > 0 && generatedActionOptions.length > 0
-    // Build action items with full metadata for AI-generated, or just text for manual
-    const actionItems = hasSelectedAI
-      ? selectedActionOptions
+    // Guard: require AI selection — free-text is a hint only, not directly submittable
+    if (!hasSelectedAI) {
+      showNotification('Please select at least one AI-suggested action to create. Use "Generate Actions with AI" first, then check the ones you want.', 'warning')
+      return
+    }
+    // Build action items with full metadata from AI-generated selections
+    const actionItems = selectedActionOptions
           .map(index => {
             const action = generatedActionOptions[index]
             if (!action) return null
@@ -1545,11 +1673,10 @@ export default function Playbook() {
             }
           })
           .filter(Boolean)
-      : [newActionText.trim()].filter(Boolean).map(text => ({ text, coachMetadata: null }))
     const actionTexts = actionItems.map(item => item.text)
 
-    const existingCount = goalActions.length
-    // Only enforce 3-action limit if NOT from library
+    const existingCount = goalActions.filter(a => a.is_active !== false).length
+    // Only enforce 3-action limit client-side if NOT from library (server also enforces this)
     if (!isFromLibrary && existingCount + actionTexts.length > 3) {
       showNotification('Each goal can have up to 3 actions. Please swap an action instead.', 'warning')
       return
@@ -1598,7 +1725,8 @@ export default function Playbook() {
             goalId: goalId,
             challengeId: inferredGoal.coach_wellness_goals?.challenge_id || inferredGoal.challenge_id || null,
             actionText: actionItem.text,
-            coachMetadata: actionItem.coachMetadata || null
+            coachMetadata: actionItem.coachMetadata || null,
+            source: 'ai'
           })
         })
         
@@ -1639,7 +1767,9 @@ export default function Playbook() {
       
       // Navigate back appropriately
       if (isFromLibrary) {
-        // User came from library - go back to library view
+        // Keep goal expanded so newly created actions are visible immediately
+        const goalDbId = inferredGoal?.id || null
+        if (goalDbId) setExpandedGoalId(goalDbId)
         setModalView('view-goals')
         setIsFromLibrary(false) // Reset flag
       } else if (isSwapFlow) {
@@ -1852,6 +1982,7 @@ export default function Playbook() {
         .eq('coach_profile_id', coachId)
         .eq('challenge_id', challengeId)
         .eq('is_active', true)
+        .eq('created_by', 'system')
       
       // Filter by severity: match user's severity OR NULL (general goals)
       if (userSeverity) {
@@ -1889,6 +2020,25 @@ export default function Playbook() {
     await loadModalData()
     await fetchCoachGoals()
     setModalView('view-goals')
+  }
+
+  // Open create-goal flow directly (used by empty-state CTAs)
+  const openCreateGoalModal = async () => {
+    setShowManageModal(true)
+    setModalView('create-goal')
+    setSwapType(null)
+    setIsSwapFlow(false)
+    setIsFromLibrary(false) // Always false when opened from playbook CTA
+    await loadModalData()
+    await fetchCoachGoals()
+  }
+
+  // Open suggested-goals view directly
+  const openSuggestedGoalsModal = async () => {
+    setShowManageModal(true)
+    setModalView('view-goals')
+    await loadModalData()
+    await fetchCoachGoals()
   }
   
   // Open Swap Action flow
@@ -2145,7 +2295,34 @@ export default function Playbook() {
           })
         })
       )
-      
+
+      // A2: When swapping an action, toggle is_active on the old and new action.
+      // This makes the swap data-driven rather than relying on display_order + .slice().
+      if (actionToSwapOut) {
+        // Deactivate the swapped-out action (moves it to the goal's library)
+        await fetch('/api/actions', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: user.email,
+            actionId: actionToSwapOut.id,
+            isActive: false
+          })
+        })
+        // Activate the swapped-in action(s)
+        for (const actionId of selectedActions) {
+          await fetch('/api/actions', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: user.email,
+              actionId: actionId,
+              isActive: true
+            })
+          })
+        }
+      }
+
       await Promise.all(reorderPromises)
       
       // Refresh the main page actions
@@ -2211,9 +2388,16 @@ export default function Playbook() {
         setNewGoalLabel(data.goals[0].label)
         setNewGoalDescription(data.goals[0].description || '')
         console.log(`💰 Tokens used: ${data.tokens_used}, Remaining: ${data.tokens_remaining}`)
+        if (data.tokens_remaining !== undefined) {
+          setUserData(prev => ({ ...prev, tokens: data.tokens_remaining }))
+        }
       } else {
         console.error('❌ Coach AI response not ok:', data)
-        showNotification(data.error || 'Failed to generate goal. Please try again.', 'error')
+        if (data.error === 'Insufficient tokens') {
+          showNotification('Not enough credits. Visit Buy Credits to continue.', 'warning')
+        } else {
+          showNotification(data.error || 'Failed to generate goal. Please try again.', 'error')
+        }
       }
     } catch (error) {
       console.error('❌ Error generating goal:', error)
@@ -2299,9 +2483,16 @@ export default function Playbook() {
         setExpandedAINoteIndex(null)
         showNotification(`✨ Generated ${filteredActions.length} action suggestions!`, 'success')
         console.log(`💰 Tokens used: ${data.tokens_used}, Remaining: ${data.tokens_remaining}`)
+        if (data.tokens_remaining !== undefined) {
+          setUserData(prev => ({ ...prev, tokens: data.tokens_remaining }))
+        }
       } else {
         console.error('❌ Coach AI response not ok:', data)
-        showNotification(data.error || 'Failed to generate actions. Please try again.', 'error')
+        if (data.error === 'Insufficient tokens') {
+          showNotification('Not enough credits. Visit Buy Credits to continue.', 'warning')
+        } else {
+          showNotification(data.error || 'Failed to generate actions. Please try again.', 'error')
+        }
       }
     } catch (error) {
       console.error('❌ Error generating actions:', error)
@@ -2338,18 +2529,20 @@ export default function Playbook() {
           best_lever: data.insights.best_lever,
           keep: data.next_week_plan.keep,
           change: data.next_week_plan.change,
-          try: data.next_week_plan.try
+          try: data.next_week_plan.try,
+          low_confidence: data.low_confidence || false,
+          insufficient_data: data.insufficient_data || false
         })
         
         showNotification('✨ Weekly insights generated!', 'success')
         console.log(`💰 Tokens used: ${data.tokens_used}, Remaining: ${data.tokens_remaining}`)
         
         // Update user tokens in state
-        setUser(prev => ({ ...prev, tokens: data.tokens_remaining }))
+        setUserData(prev => ({ ...prev, tokens: data.tokens_remaining }))
       } else {
         console.error('❌ Insights generation failed:', data)
         if (data.error === 'Insufficient tokens') {
-          showNotification(`Need ${data.required} tokens. You have ${data.available}.`, 'warning')
+          showNotification('Not enough credits. Visit Buy Credits to continue.', 'warning')
         } else {
           showNotification(data.error || 'Failed to generate insights. Please try again.', 'error')
         }
@@ -2592,21 +2785,47 @@ export default function Playbook() {
               
               <div className={styles.nextStepContent}>
                 <div className={styles.streakInfo}>
-                  <input 
-                    type="checkbox" 
-                    checked={streak >= 6} 
-                    readOnly 
-                    className={styles.streakCheckbox}
-                  />
-                  <span className={styles.streakText}>6-day streak</span>
-                  <span className={styles.streakProgress}>Today: 1 / 3 reps</span>
+                  <span className={styles.streakText}>
+                    {streak > 0 ? `${streak}-day streak` : 'Start your streak today'}
+                  </span>
+                  <span className={styles.streakProgress}>
+                    Today: {
+                      [...trackActions, ...wellnessActions].filter(a => a.status === 'completed').length
+                    } / {trackActions.length + wellnessActions.length} reps
+                  </span>
                 </div>
-                <button 
-                  className={styles.continuePlanButton}
-                  onClick={handleContinuePlan}
-                >
-                  Continue Plan (2 min)
-                </button>
+                {trackActions.length + wellnessActions.length === 0 && !trackGoal?.id ? (
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '10px' }}>
+                      Welcome! Set your first goal and attach up to 3 daily actions to start building your streak.
+                    </p>
+                    <button
+                      className={styles.continuePlanButton}
+                      onClick={openCreateGoalModal}
+                    >
+                      Create goal
+                    </button>
+                  </div>
+                ) : trackActions.length + wellnessActions.length === 0 ? (
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '10px' }}>
+                      Goal set! Now add up to 3 daily actions to start tracking reps.
+                    </p>
+                    <button
+                      className={styles.continuePlanButton}
+                      onClick={openManageModal}
+                    >
+                      Add actions to your goal
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    className={styles.continuePlanButton}
+                    onClick={handleContinuePlan}
+                  >
+                    Continue Plan (2 min)
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2614,12 +2833,14 @@ export default function Playbook() {
             <div className={styles.card}>
               <div className={styles.actionsHeader}>
                 <h2 className={styles.cardTitle}>Today's actions</h2>
-                <button 
-                  className={styles.manageButton}
-                  onClick={openManageModal}
-                >
-                  Manage
-                </button>
+                {(trackGoal?.id || wellnessGoal?.id) && (
+                  <button 
+                    className={styles.manageButton}
+                    onClick={openManageModal}
+                  >
+                    Manage
+                  </button>
+                )}
               </div>
               
               <p className={styles.actionsSubtitle}>
@@ -2629,7 +2850,17 @@ export default function Playbook() {
               {/* Accordion-style Goals */}
               <div className={styles.goalsAccordion}>
                 {/* Track Goal */}
-                {trackGoal && (
+                {!trackGoal?.id ? (
+                  <div className={styles.goalAccordionItem}>
+                    <div className={styles.emptyState}>
+                      <p style={{ fontWeight: '600', marginBottom: '4px' }}>No goals yet</p>
+                      <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px' }}>Add a goal to start. Then attach actions to that goal.</p>
+                      <button className={styles.primaryButton} onClick={openCreateGoalModal} style={{ width: '100%' }}>
+                        Create goal
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <div className={styles.goalAccordionItem}>
                     <div 
                       className={styles.goalAccordionHeader}
@@ -2672,12 +2903,13 @@ export default function Playbook() {
                           trackActions.map((action) => (
                             <div key={action.id} className={styles.actionRow} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={action.status === 'completed'}
-                                  onChange={() => {}} 
-                                  className={styles.actionCheckbox}
-                                />
+                                <span
+                                  className={styles.actionStatusDot}
+                                  style={{ color: action.status === 'completed' ? '#16a34a' : '#d1d5db', fontSize: '18px', lineHeight: 1, flexShrink: 0 }}
+                                  aria-label={action.status === 'completed' ? 'Completed' : 'Not completed'}
+                                >
+                                  {action.status === 'completed' ? '●' : '○'}
+                                </span>
                                 <div className={styles.actionContent} style={{ flex: 1 }}>
                                   <div className={styles.actionTitleRow}>
                                     <span className={styles.actionTitle}>{action.title}</span>
@@ -2749,12 +2981,13 @@ export default function Playbook() {
                           wellnessActions.map((action) => (
                             <div key={action.id} className={styles.actionRow} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <input
-                                  type="checkbox"
-                                  checked={action.status === 'completed'}
-                                  onChange={() => {}} 
-                                  className={styles.actionCheckbox}
-                                />
+                                <span
+                                  className={styles.actionStatusDot}
+                                  style={{ color: action.status === 'completed' ? '#16a34a' : '#d1d5db', fontSize: '18px', lineHeight: 1, flexShrink: 0 }}
+                                  aria-label={action.status === 'completed' ? 'Completed' : 'Not completed'}
+                                >
+                                  {action.status === 'completed' ? '●' : '○'}
+                                </span>
                                 <div className={styles.actionContent} style={{ flex: 1 }}>
                                   <div className={styles.actionTitleRow}>
                                     <span className={styles.actionTitle}>{action.title}</span>
@@ -2780,16 +3013,16 @@ export default function Playbook() {
                       </div>
                     )}
                   </div>
-                ) : (
+                ) : trackGoal?.id ? (
                   <div className={styles.goalAccordionItem}>
                     <div className={styles.emptyState}>
                       <p>Add a second goal to unlock more actions.</p>
-                      <button className={styles.secondaryButton} onClick={openManageModal}>
+                      <button className={styles.secondaryButton} onClick={openCreateGoalModal}>
                         Add second goal
                       </button>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -2805,33 +3038,40 @@ export default function Playbook() {
                   <ul className={styles.patternList}>
                     <li className={styles.patternItem}>
                       <span className={styles.patternBullet}>•</span>
-                      <span>Risk window: {weeklyInsights.risk_window}</span>
+                      <span>High-risk times: {weeklyInsights.risk_window}</span>
                     </li>
                     <li className={styles.patternItem}>
                       <span className={styles.patternBullet}>•</span>
-                      <span>Best tool: {weeklyInsights.best_tool}</span>
+                      <span>What helps most: {weeklyInsights.best_tool}</span>
                     </li>
                     <li className={styles.patternItem}>
                       <span className={styles.patternBullet}>•</span>
-                      <span>Best lever: {weeklyInsights.best_lever}</span>
+                      <span>Best next step: {weeklyInsights.best_lever}</span>
                     </li>
                   </ul>
 
-                  <button 
-                    className={styles.applyPlanButton}
-                    onClick={applyNextWeekPlan}
-                    disabled={savingData}
-                  >
-                    {savingData ? 'Applying...' : 'Apply next-week plan (600)'}
-                  </button>
-                  
+                  {weeklyInsights.low_confidence && (
+                    <p style={{ fontSize: '12px', color: '#92400e', backgroundColor: '#fef3c7', padding: '8px 10px', borderRadius: '6px', margin: '8px 0 0', border: '1px solid #fde68a' }}>
+                      Low confidence — log a few more actions to sharpen these patterns.
+                    </p>
+                  )}
+
+                  {weeklyInsights.insufficient_data && (
+                    <a
+                      href="/playbook/insights?range_key=last_7_days"
+                      style={{ display: 'block', marginTop: '8px', padding: '8px 12px', backgroundColor: '#f3f4f6', borderRadius: '6px', textAlign: 'center', fontSize: '13px', color: '#4b5563', textDecoration: 'none', border: '1px solid #d1d5db', fontWeight: '600' }}
+                    >
+                      📊 See what's missing →
+                    </a>
+                  )}
+
                   <button 
                     className={styles.secondaryButton}
                     onClick={generateWeeklyInsights}
                     disabled={generatingInsights}
                     style={{ marginTop: '8px', width: '100%' }}
                   >
-                    {generatingInsights ? 'Generating...' : 'Refresh insights (100)'}
+                    {generatingInsights ? 'Generating...' : 'Refresh Insights'}
                   </button>
 
                   <button 
@@ -2844,25 +3084,45 @@ export default function Playbook() {
                 </>
               ) : (
                 <>
-                  <div style={{ 
-                    padding: '20px', 
-                    textAlign: 'center', 
-                    backgroundColor: '#f9fafb', 
-                    borderRadius: '8px',
-                    marginBottom: '12px'
-                  }}>
-                    <p style={{ color: '#6b7280', fontSize: '14px', marginBottom: '12px' }}>
-                      Get AI-powered insights from your past week's actions and completion patterns.
-                    </p>
-                  </div>
-                  
+                  {(() => {
+                    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000)
+                    const weekCount = Object.values(actionLogs).flat().filter(log => {
+                      return new Date(log.logged_at || log.completed_at) >= sevenDaysAgo
+                    }).length
+                    const hasEnoughData = weekCount >= 3
+                    return (
+                      <div style={{ 
+                        padding: '14px', 
+                        backgroundColor: hasEnoughData ? '#f0fdf4' : '#fefce8',
+                        borderRadius: '8px',
+                        marginBottom: '12px',
+                        border: `1px solid ${hasEnoughData ? '#bbf7d0' : '#fde68a'}`
+                      }}>
+                        {hasEnoughData ? (
+                          <p style={{ color: '#15803d', fontSize: '13px', margin: 0 }}>
+                            ✅ You have {weekCount} logs this week — generate your patterns below.
+                          </p>
+                        ) : (
+                          <>
+                            <p style={{ color: '#92400e', fontSize: '13px', marginBottom: '6px', fontWeight: '600' }}>
+                              Not enough data yet
+                            </p>
+                            <p style={{ color: '#78350f', fontSize: '12px', margin: 0 }}>
+                              You have {weekCount} action log{weekCount !== 1 ? 's' : ''} this week. Log at least 3 completions to unlock meaningful pattern analysis.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })()}
+
                   <button 
                     className={styles.primaryButton}
                     onClick={generateWeeklyInsights}
                     disabled={generatingInsights}
                     style={{ width: '100%' }}
                   >
-                    {generatingInsights ? 'Generating...' : 'Generate insights (100 tokens)'}
+                    {generatingInsights ? 'Generating...' : 'Generate Insights'}
                   </button>
 
                   <button 
@@ -2885,6 +3145,29 @@ export default function Playbook() {
                 <Link href="/buy-tokens" style={{ color: 'inherit', textDecoration: 'none' }}>
                   Buy tokens
                 </Link>
+              </button>
+            </div>
+
+            {/* Slip Logging Card */}
+            <div className={styles.card}>
+              <h2 className={styles.cardTitle} style={{ color: '#dc2626' }}>Log a slip</h2>
+              <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '12px' }}>
+                Slips are part of recovery. Logging them builds self-awareness — no judgment.
+              </p>
+              <button
+                className={styles.secondaryButton}
+                onClick={() => {
+                  setSlipTrigger('')
+                  setSlipUrgeLevel(5)
+                  setSlipNotes('')
+                  setSlipRecoveryNote('')
+                  setSlipOccurredAt(new Date().toISOString().split('T')[0])
+                  setSlipTimeOfDay('')
+                  setShowSlipModal(true)
+                }}
+                style={{ width: '100%', borderColor: '#dc2626', color: '#dc2626' }}
+              >
+                Log a slip
               </button>
             </div>
           </div>
@@ -3473,10 +3756,10 @@ export default function Playbook() {
                         💡 How this works
                       </div>
                       <ul style={{ margin: '0', paddingLeft: '20px', lineHeight: '1.6' }}>
-                        <li>Pick a suggested goal OR create your own</li>
+                        <li>Select a suggested goal from the dropdown, or use "AI Suggest Goals" below</li>
                         <li>You can have up to 2 active goals at a time</li>
-                        <li>Extra goals are saved to your Library</li>
-                        <li>Use "AI Suggest Goals" to browse AI-generated options</li>
+                        <li>Extra goals are saved to your Library (new goals start inactive)</li>
+                        <li>Click an AI suggestion to select it, then tap Create Goal</li>
                       </ul>
                     </div>
                     
@@ -3550,24 +3833,28 @@ export default function Playbook() {
                           <input
                             type="text"
                             value={newGoalLabel}
-                            onChange={(e) => {
-                              console.log('📝 Input changed to:', e.target.value)
-                              setNewGoalLabel(e.target.value)
-                            }}
-                            placeholder="e.g., No unfiltered access"
+                            readOnly
+                            placeholder="Select from dropdown above or generate AI suggestions below"
                             className={styles.input}
+                            style={{ backgroundColor: '#f9fafb', cursor: 'default', color: newGoalLabel ? '#111827' : '#9ca3af' }}
                           />
+                          <small style={{ fontSize: '12px', color: '#6b7280', marginTop: '4px', display: 'block' }}>
+                            {newGoalLabel ? '\u2713 Goal selected \u2014 pick a different suggestion to change it.' : 'Use the dropdown above or click \u201cAI Suggest Goals\u201d to choose a goal.'}
+                          </small>
                         </div>
                         
                         <div className={styles.formGroup}>
-                          <label>Description (optional)</label>
+                          <label>Description hint (optional)</label>
                           <textarea
                             value={newGoalDescription}
                             onChange={(e) => setNewGoalDescription(e.target.value)}
-                            placeholder="Describe your goal..."
+                            placeholder=""
                             className={styles.textarea}
-                            rows={3}
+                            rows={2}
                           />
+                          <small style={{ fontSize: '12px', color: '#6b7280', marginTop: '6px', display: 'block' }}>
+                            Optional: describe what you want. AI will suggest goals aligned to this. Leave blank for general suggestions.
+                          </small>
                         </div>
                         
                         {/* Show generated goal options if available */}
@@ -3683,7 +3970,7 @@ export default function Playbook() {
                       <button 
                         className={styles.primaryButton}
                         onClick={createCustomGoal}
-                        disabled={(!selectedCoachGoal && !newGoalLabel.trim()) || savingData}
+                        disabled={(!selectedCoachGoal && (selectedGoalOption === null || generatedGoalOptions.length === 0)) || savingData}
                       >
                         {savingData ? 'Creating...' : 'Create Goal'}
                       </button>
@@ -4174,11 +4461,11 @@ export default function Playbook() {
                       border: '1px solid #fde047'
                     }}>
                       <div style={{ fontSize: '14px', fontWeight: '600', color: '#854d0e', marginBottom: '12px' }}>
-                        ✨ Choose your approach:
+                        ✨ How to add actions:
                       </div>
                       <div style={{ fontSize: '13px', color: '#713f12', lineHeight: '1.6' }}>
-                        • <strong>Use AI:</strong> Click "Generate Actions with AI" for personalized suggestions (costs 75 tokens)<br/>
-                        • <strong>Create Manually:</strong> Type your own action in the box below
+                        • <strong>Type a hint below</strong> (optional) and click "Generate Actions with AI" for personalized suggestions<br/>
+                        • <strong>Must select at least one AI suggestion</strong> to create &mdash; free-form text is a hint only, not an action
                       </div>
                     </div>
                     
@@ -4395,22 +4682,23 @@ export default function Playbook() {
                       </div>
                     )}
                     
-                    {/* Manual action input */}
-                    {generatedActionOptions.length === 0 && (
-                      <div className={styles.formGroup}>
-                        <label style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px', display: 'block' }}>
-                          Or type your own action:
-                        </label>
-                        <textarea
-                          value={newActionText}
-                          onChange={(e) => setNewActionText(e.target.value)}
-                          placeholder="e.g., Take 3 deep breaths when urge appears"
-                          className={styles.textarea}
-                          rows={3}
-                          style={{ fontSize: '14px' }}
-                        />
-                      </div>
-                    )}
+                    {/* Action hint input — always shown; text passes as seed to AI, not a direct action */}
+                    <div className={styles.formGroup}>
+                      <label style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '8px', display: 'block' }}>
+                        Action hint (optional):
+                      </label>
+                      <textarea
+                        value={newActionText}
+                        onChange={(e) => setNewActionText(e.target.value)}
+                        placeholder=""
+                        className={styles.textarea}
+                        rows={2}
+                        style={{ fontSize: '14px' }}
+                      />
+                      <small style={{ fontSize: '12px', color: '#6b7280', marginTop: '6px', display: 'block' }}>
+                        Type what you want help with and AI will suggest actions similar to it. You must select at least one suggestion to add.
+                      </small>
+                    </div>
                     
                     <button 
                       className={styles.aiSuggestButton}
@@ -4424,40 +4712,6 @@ export default function Playbook() {
                     >
                       {generatingAction ? '✨ Generating...' : (generatedActionOptions.length > 0 ? '🔄 Generate Different Actions' : '✨ Generate Actions with AI')}
                     </button>
-                    
-                    {/* Baseline (optional) - lightweight create-time capture */}
-                    <div style={{ 
-                      padding: '16px',
-                      background: '#fafafa',
-                      borderRadius: '8px',
-                      border: '1px solid #e5e7eb',
-                      marginBottom: '16px'
-                    }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>
-                        📊 Baseline (optional)
-                      </div>
-                      <div className={styles.formGroup} style={{ marginBottom: '12px' }}>
-                        <label className={styles.formLabel} style={{ fontSize: '13px' }}>Confidence to do this action this week?</label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '4px' }}>
-                          <StarRating value={createActionConfidence} onChange={setCreateActionConfidence} size={24} />
-                          <span style={{ fontSize: '12px', color: '#9ca3af' }}>
-                            {createActionConfidence === 1 ? 'Low' : createActionConfidence === 2 ? 'Some' : createActionConfidence === 3 ? 'Good' : createActionConfidence === 4 ? 'Very high' : 'Skip'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={styles.formGroup} style={{ marginBottom: '0' }}>
-                        <label className={styles.formLabel} style={{ fontSize: '13px' }}>What might make this hard? (optional)</label>
-                        <input
-                          type="text"
-                          className={styles.input}
-                          placeholder="e.g., Remembering to do it when stressed..."
-                          maxLength={200}
-                          value={createActionFriction}
-                          onChange={(e) => setCreateActionFriction(e.target.value)}
-                          style={{ fontSize: '13px' }}
-                        />
-                      </div>
-                    </div>
                     
                     <div className={styles.modalActions}>
                       <button 
@@ -4475,7 +4729,7 @@ export default function Playbook() {
                       <button 
                         className={styles.primaryButton}
                         onClick={createNewAction}
-                        disabled={((!newActionText.trim() && selectedActionOptions.length === 0) || savingData)}
+                        disabled={(selectedActionOptions.length === 0 || savingData)}
                       >
                         {savingData ? 'Creating...' : `Create ${selectedActionOptions.length > 0 ? `(${selectedActionOptions.length})` : ''} Action${selectedActionOptions.length > 1 ? 's' : ''}`}
                       </button>
@@ -4564,37 +4818,66 @@ export default function Playbook() {
                   </div>
                 )}
                 
-                {/* Urge Before (optional) */}
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Urge level before? (optional, 0-10)</label>
-                  <div className={styles.rangeRow}>
-                    <input
-                      type="range"
-                      min="0"
-                      max="10"
-                      value={logUrgeBefore || 0}
-                      onChange={(e) => setLogUrgeBefore(parseInt(e.target.value))}
-                      className={styles.rangeInput}
-                    />
-                    <span className={styles.rangeValue}>{logUrgeBefore || '—'}</span>
-                  </div>
+                {/* Urge tracking toggle (opt-in, default OFF) */}
+                <div className={styles.formGroup} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#f9fafb', padding: '10px 12px', borderRadius: '6px' }}>
+                  <label style={{ fontSize: '13px', color: '#374151', fontWeight: '500', margin: 0 }}>Track urge levels?</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogTrackUrge(v => !v)
+                      if (logTrackUrge) { setLogUrgeBefore(''); setLogUrgeAfter('') }
+                    }}
+                    style={{
+                      width: '40px', height: '22px', borderRadius: '11px', border: 'none', cursor: 'pointer',
+                      background: logTrackUrge ? '#16a34a' : '#d1d5db',
+                      position: 'relative', transition: 'background 0.2s'
+                    }}
+                    aria-checked={logTrackUrge}
+                    role="switch"
+                  >
+                    <span style={{
+                      display: 'block', width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: '3px',
+                      left: logTrackUrge ? '21px' : '3px',
+                      transition: 'left 0.2s'
+                    }} />
+                  </button>
                 </div>
-                
-                {/* Urge After (optional) */}
-                <div className={styles.formGroup}>
-                  <label className={styles.formLabel}>Urge level after? (optional, 0-10)</label>
-                  <div className={styles.rangeRow}>
-                    <input
-                      type="range"
-                      min="0"
-                      max="10"
-                      value={logUrgeAfter || 0}
-                      onChange={(e) => setLogUrgeAfter(parseInt(e.target.value))}
-                      className={styles.rangeInput}
-                    />
-                    <span className={styles.rangeValue}>{logUrgeAfter || '—'}</span>
-                  </div>
-                </div>
+
+                {/* Urge sliders — shown only when toggle is ON */}
+                {logTrackUrge && (
+                  <>
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Urge level before? (0-10)</label>
+                      <div className={styles.rangeRow}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="10"
+                          value={logUrgeBefore || 0}
+                          onChange={(e) => setLogUrgeBefore(parseInt(e.target.value))}
+                          className={styles.rangeInput}
+                        />
+                        <span className={styles.rangeValue}>{logUrgeBefore !== '' ? logUrgeBefore : '—'}</span>
+                      </div>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label className={styles.formLabel}>Urge level after? (0-10)</label>
+                      <div className={styles.rangeRow}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="10"
+                          value={logUrgeAfter || 0}
+                          onChange={(e) => setLogUrgeAfter(parseInt(e.target.value))}
+                          className={styles.rangeInput}
+                        />
+                        <span className={styles.rangeValue}>{logUrgeAfter !== '' ? logUrgeAfter : '—'}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 
                 {/* Context (optional) */}
                 <div className={styles.formGroup}>
@@ -4649,6 +4932,134 @@ export default function Playbook() {
           </div>
         )}
         
+        {/* Slip Log Modal */}
+        {showSlipModal && (
+          <div className={styles.modalOverlay} onClick={() => setShowSlipModal(false)}>
+            <div className={styles.logModal} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h2>Log a slip</h2>
+                <button className={styles.modalClose} onClick={() => setShowSlipModal(false)}>×</button>
+              </div>
+
+              <div className={styles.modalContent}>
+                <div style={{
+                  background: '#fef2f2', padding: '12px', borderRadius: '6px',
+                  marginBottom: '16px', fontSize: '13px', color: '#991b1b',
+                  border: '1px solid #fecaca'
+                }}>
+                  💙 Slips happen. Logging this is an act of self-awareness, not shame.
+                </div>
+
+                {/* When did it happen */}
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>When did it happen?</label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <input
+                      type="date"
+                      className={styles.input}
+                      value={slipOccurredAt}
+                      max={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => setSlipOccurredAt(e.target.value)}
+                      style={{ flex: '1', minWidth: '140px' }}
+                    />
+                    <select
+                      className={styles.input}
+                      value={slipTimeOfDay}
+                      onChange={(e) => setSlipTimeOfDay(e.target.value)}
+                      style={{ flex: '1', minWidth: '160px' }}
+                    >
+                      <option value="">— Time of day —</option>
+                      <option value="early_morning">Early morning (5–9am)</option>
+                      <option value="morning">Morning (9am–12pm)</option>
+                      <option value="afternoon">Afternoon (12–5pm)</option>
+                      <option value="evening">Evening (5–9pm)</option>
+                      <option value="late_night">Late night (9pm–5am)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Trigger */}
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>What triggered it? (optional)</label>
+                  <select
+                    className={styles.input}
+                    value={slipTrigger}
+                    onChange={(e) => setSlipTrigger(e.target.value)}
+                  >
+                    <option value="">— Skip —</option>
+                    <option value="stress">Stress</option>
+                    <option value="boredom">Boredom</option>
+                    <option value="loneliness">Loneliness</option>
+                    <option value="late_night">Late night</option>
+                    <option value="anxiety">Anxiety</option>
+                    <option value="conflict">Conflict / argument</option>
+                    <option value="celebration">Celebrating / rewarding myself</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                {/* Urge level */}
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Urge level at the time (1–10)</label>
+                  <div className={styles.rangeRow}>
+                    <input
+                      type="range"
+                      min="1"
+                      max="10"
+                      value={slipUrgeLevel}
+                      onChange={(e) => setSlipUrgeLevel(parseInt(e.target.value))}
+                      className={styles.rangeInput}
+                    />
+                    <span className={styles.rangeValue}>{slipUrgeLevel}</span>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Notes (optional)</label>
+                  <textarea
+                    className={styles.textarea}
+                    placeholder="What happened? Any context?"
+                    rows="2"
+                    value={slipNotes}
+                    onChange={(e) => setSlipNotes(e.target.value)}
+                  />
+                </div>
+
+                {/* Recovery note */}
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>What will you do differently? (optional)</label>
+                  <textarea
+                    className={styles.textarea}
+                    placeholder="e.g. I'll use my breathing tool next time I feel bored at night."
+                    rows="2"
+                    value={slipRecoveryNote}
+                    onChange={(e) => setSlipRecoveryNote(e.target.value)}
+                  />
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button
+                    className={styles.secondaryButton}
+                    onClick={() => setShowSlipModal(false)}
+                    disabled={savingSlip}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className={styles.primaryButton}
+                    onClick={handleSaveSlip}
+                    disabled={savingSlip}
+                    style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                  >
+                    {savingSlip ? 'Saving...' : 'Log slip'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Baseline Capture Modal */}
         {showBaselineModal && (
           <div className={styles.modalOverlay} onClick={() => setShowBaselineModal(false)}>

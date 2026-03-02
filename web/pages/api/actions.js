@@ -45,12 +45,15 @@ async function getActions(req, res) {
       return res.status(404).json({ error: 'User not found' })
     }
 
-    // Build query for actions
+    // Build query for actions — return all non-completed actions (both active and inactive)
+    // so the manage/swap modal can show the full library for a goal.
+    // is_active is included in the payload so the UI can badge/filter as needed.
     let query = supabase
       .from('action_plans')
-      .select('*')
+      .select('id, user_id, goal_id, challenge_id, action_text, is_complete, is_active, display_order, created_at, completed_at, coach_metadata, status')
       .eq('user_id', user.id)
       .eq('is_complete', false)
+      .order('is_active', { ascending: false })  // active actions first
       .order('display_order', { ascending: true })
       .order('created_at', { ascending: false })
 
@@ -79,10 +82,14 @@ async function getActions(req, res) {
 // POST: Create a new action
 async function createAction(req, res) {
   try {
-    const { email, goalId, challengeId, actionText, displayOrder, coachMetadata } = req.body
+    const { email, goalId, challengeId, actionText, displayOrder, coachMetadata, source } = req.body
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' })
+    }
+
+    if (!source || source !== 'ai') {
+      return res.status(400).json({ error: 'Actions must be created from AI suggestions. Please use "Generate Actions with AI" and select at least one suggestion.' })
     }
 
     if (!actionText) {
@@ -100,6 +107,26 @@ async function createAction(req, res) {
       return res.status(404).json({ error: 'User not found' })
     }
 
+    // A3: Validate goalId refers to a coach_wellness_goals.goal_id (TEXT slug),
+    // not a user_wellness_goals UUID or an unknown identifier.
+    if (goalId) {
+      const { data: cwg, error: cwgError } = await supabase
+        .from('coach_wellness_goals')
+        .select('id')
+        .eq('goal_id', goalId)
+        .maybeSingle()
+
+      if (cwgError) {
+        console.error('Error validating goalId against coach_wellness_goals:', cwgError)
+      } else if (!cwg) {
+        console.error('⚠️ action_plans.goal_id not found in coach_wellness_goals:', goalId)
+        return res.status(400).json({
+          error: `Invalid goalId "${goalId}": must match a coach_wellness_goals.goal_id. ` +
+                 'Ensure you are passing the coach goal_id text field, not a user_wellness_goals UUID.'
+        })
+      }
+    }
+
     // Get the max display_order for the user's actions
     const { data: existingActions, error: orderError } = await supabase
       .from('action_plans')
@@ -113,6 +140,25 @@ async function createAction(req, res) {
       nextOrder = existingActions?.[0]?.display_order ? existingActions[0].display_order + 1 : 1
     }
 
+    // A2: Determine is_active for the new action.
+    // A goal can have at most 3 active (is_active=true) actions at a time.
+    // If the goal already has 3 active actions, save the new one as inactive (library).
+    let isActionActive = true
+    if (goalId) {
+      const { count: activeCount } = await supabase
+        .from('action_plans')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('goal_id', goalId)
+        .eq('is_complete', false)
+        .eq('is_active', true)
+
+      if ((activeCount || 0) >= 3) {
+        isActionActive = false
+        console.log(`ℹ️ Goal ${goalId} already has ${activeCount} active actions — saving new action as inactive (library).`)
+      }
+    }
+
     // Build insert object
     const insertData = {
       user_id: user.id,
@@ -120,6 +166,7 @@ async function createAction(req, res) {
       challenge_id: challengeId || null,
       action_text: actionText,
       is_complete: false,
+      is_active: isActionActive,
       status: 'accepted',
       display_order: nextOrder
     }
@@ -168,6 +215,8 @@ async function updateAction(req, res) {
       return res.status(404).json({ error: 'User not found' })
     }
 
+    const { isActive } = req.body
+
     // Build update object
     const updates = {}
     if (actionText !== undefined) updates.action_text = actionText
@@ -176,6 +225,13 @@ async function updateAction(req, res) {
       if (isComplete) updates.completed_at = new Date().toISOString()
     }
     if (displayOrder !== undefined) updates.display_order = displayOrder
+    // A2: allow toggling is_active for swap-in / swap-out
+    if (isActive !== undefined) {
+      if (typeof isActive !== 'boolean') {
+        return res.status(400).json({ error: 'isActive must be a boolean' })
+      }
+      updates.is_active = isActive
+    }
 
     // Update the action
     const { data: updatedAction, error: updateError } = await supabase
